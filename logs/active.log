@@ -1,0 +1,2 @@
+2025-10-02 11:29:33.644 INFO  org.info.tg_bot.bot.common.TelegramBot - Bot initialized with username: afm_rk_bot
+2025-10-02 11:29:34.475 INFO  org.info.tg_bot.bot.common.TelegramBot - Bot commands registered successfully: /start, /upload, /status, /help, /notify

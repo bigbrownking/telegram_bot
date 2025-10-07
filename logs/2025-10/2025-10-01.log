@@ -1,0 +1,8 @@
+2025-10-01 15:45:40.544 INFO  org.info.tg_bot.bot.common.TelegramBot - Received message: chatId=955182325, username=test5gr, text=my name is Alisher
+2025-10-01 16:16:23.371 INFO  org.info.tg_bot.bot.common.TelegramBot - Received message: chatId=955182325, username=test5gr, text=/start
+2025-10-01 16:20:26.526 INFO  org.info.tg_bot.bot.common.TelegramBot - Bot initialized with username: afm_rk_bot
+2025-10-01 16:20:27.075 INFO  org.info.tg_bot.bot.common.TelegramBot - Bot commands registered successfully: /start, /upload, /status, /help, /notify
+2025-10-01 16:20:42.104 INFO  org.info.tg_bot.bot.common.TelegramBot - Received message: chatId=955182325, username=test5gr, text=/start
+2025-10-01 16:20:48.693 INFO  org.info.tg_bot.bot.common.TelegramBot - Received message: chatId=955182325, username=test5gr, text=/upload
+2025-10-01 16:22:53.796 INFO  org.info.tg_bot.bot.common.TelegramBot - Received message: chatId=955182325, username=test5gr, text=/start
+2025-10-01 16:27:34.871 INFO  org.info.tg_bot.bot.common.TelegramBot - Received message: chatId=955182325, username=test5gr, text=/start
