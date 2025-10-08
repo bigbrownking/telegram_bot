@@ -23,6 +23,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class DocumentParserService {
 
+    private final NotificationService notificationService;
     private final DocumentRepository documentRepository;
     private final UserRepository userRepository;
 
@@ -48,7 +49,6 @@ public class DocumentParserService {
             Map.entry("Исполнитель", "executor")
     );
 
-
     public List<Document> parse(InputStream inputStream, User uploader) {
         List<Document> documents = new ArrayList<>();
 
@@ -72,6 +72,7 @@ public class DocumentParserService {
             while (rows.hasNext()) {
                 Row row = rows.next();
                 Document.DocumentBuilder builder = Document.builder();
+                User executorUser = null;
 
                 for (Cell cell : row) {
                     String field = columnMap.get(cell.getColumnIndex());
@@ -88,23 +89,47 @@ public class DocumentParserService {
                             if (executorRaw != null && !executorRaw.isBlank()) {
                                 executorRaw = executorRaw.replaceAll("\\(.*?\\)", "").trim();
                                 User matched = findUserByShortName(executorRaw);
-                                if (matched != null) builder.executor(matched);
-                                else log.warn("No match found for executor: '{}'", executorRaw);
+                                if (matched != null) {
+                                    executorUser = matched;
+                                } else {
+                                    log.warn("⚠️ No match found for executor: '{}'", executorRaw);
+                                }
                             }
                         }
-
-
                     }
                 }
 
-                Document document = builder.build();
+                Document document = builder
+                        .status(DocumentStatus.PENDING)
+                        .uploadedBy(uploader)
+                        .executor(executorUser)
+                        .build();
 
-                document.setUploadedBy(uploader);
                 documents.add(document);
+
+                if (executorUser != null) {
+                    executorUser.getDocuments().add(document);
+                }
             }
 
             documentRepository.saveAll(documents);
             log.info("✅ {} documents successfully saved.", documents.size());
+
+
+            for (Document doc : documents) {
+                if (doc.getExecutor() != null && doc.getExecutor().getTelegramId() != null) {
+                    notificationService.notifyUser(
+                            doc.getExecutor().getTelegramId(),
+                            String.format("""
+                                    📄 Вам назначен новый документ
+                                    • %s
+                                    📅 Срок исполнения: %s
+                                    """,
+                                    doc.getSummary() != null ? doc.getSummary() : "(без содержания)",
+                                    doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан")
+                    );
+                }
+            }
 
         } catch (Exception e) {
             log.error("❌ Error parsing Excel file", e);
@@ -162,5 +187,4 @@ public class DocumentParserService {
             }
         }
         return null;
-    }
-}
+    }}

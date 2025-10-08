@@ -60,7 +60,7 @@ public class UserBot extends TelegramLongPollingBot {
                 Long telegramId = update.getMessage().getFrom().getId();
                 String username = update.getMessage().getFrom().getUserName();
 
-                log.info("TEXT IS : {}", text);
+                log.info("User command received: {}", text);
 
                 if (!userService.existsByTelegramId(telegramId)) {
                     String step = userService.getRegistrationStep(telegramId);

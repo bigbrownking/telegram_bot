@@ -51,7 +51,7 @@ public class User {
     @Column(name = "position")
     private String position;
 
-    @OneToMany(mappedBy = "executor")
+    @OneToMany(mappedBy = "executor", fetch = FetchType.EAGER)
     private Set<Document> documents = new HashSet<>();
 
     @OneToMany(mappedBy = "uploadedBy", cascade = CascadeType.ALL)

@@ -2,6 +2,7 @@ package org.info.tg_bot.bot.common;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.info.tg_bot.bot.handlers.AdminCommandHandler;
 import org.info.tg_bot.bot.handlers.UserCommandHandler;
 import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.service.UserService;
@@ -19,7 +20,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class AdminBot extends TelegramLongPollingBot {
 
-    private final UserCommandHandler userCommandHandler;
+    private final AdminCommandHandler adminCommandHandler;
     private final UserService userService;
 
     @Value("${tg.admin.token}")
@@ -56,17 +57,10 @@ public class AdminBot extends TelegramLongPollingBot {
                 return;
             }
 
-            User user = userService.findByTelegramId(telegramId).orElseThrow();
-            if (user == null || !user.isAdmin()) {
+            Optional<User> user = userService.findByTelegramId(telegramId);
+            if (user.isEmpty() || !user.get().isAdmin()) {
                 SendMessage response = new SendMessage(chatId.toString(),
                         "🚫 У вас нет доступа к этому боту.");
-                execute(response);
-                return;
-            }
-
-            if (update.hasCallbackQuery()) {
-                String callbackData = update.getCallbackQuery().getData();
-                SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, callbackData);
                 execute(response);
                 return;
             }
@@ -78,9 +72,9 @@ public class AdminBot extends TelegramLongPollingBot {
                 log.info("Admin command received: {}", text);
 
                 SendMessage response = switch (text) {
-                    case "/start" -> userCommandHandler.handleStartCommand(chatId, telegramId, username);
-                    case "/help" -> userCommandHandler.handleHelpCommand(chatId);
-                    case "/upload" -> userCommandHandler.handleUploadCommand(chatId);
+                    case "/start" -> adminCommandHandler.handleStartCommand(chatId, telegramId, username);
+                    case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
+                    case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
                     default -> new SendMessage(chatId.toString(),
                             "❓ Команда не распознана. Используйте /help для списка доступных команд.");
                 };
@@ -93,7 +87,7 @@ public class AdminBot extends TelegramLongPollingBot {
                 String fileName = update.getMessage().getDocument().getFileName();
                 String fileId = update.getMessage().getDocument().getFileId();
 
-                SendMessage response = userCommandHandler.handleExcelUpload(chatId, telegramId, fileName, fileId, this);
+                SendMessage response = adminCommandHandler.handleExcelUpload(chatId, telegramId, fileName, fileId, this);
                 execute(response);
             }
 
