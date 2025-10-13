@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 @Slf4j
@@ -39,9 +40,10 @@ public class UserBot extends TelegramLongPollingBot {
     public void onUpdateReceived(Update update) {
         try {
             if (update.hasCallbackQuery()) {
-                String callbackData = update.getCallbackQuery().getData();
-                Long chatId = update.getCallbackQuery().getMessage().getChatId();
-                Long telegramId = update.getCallbackQuery().getFrom().getId();
+                CallbackQuery callback = update.getCallbackQuery();
+                String callbackData = callback.getData();
+                Long chatId = callback.getMessage().getChatId();
+                Long telegramId = callback.getFrom().getId();
 
                 if (!userService.existsByTelegramId(telegramId)) {
                     SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, callbackData);
@@ -49,7 +51,7 @@ public class UserBot extends TelegramLongPollingBot {
                     return;
                 }
 
-                SendMessage response = new SendMessage(chatId.toString(), "Команда пока не реализована.");
+                SendMessage response = userCommandHandler.handleCallback(chatId, telegramId, callbackData);
                 execute(response);
                 return;
             }
@@ -60,19 +62,13 @@ public class UserBot extends TelegramLongPollingBot {
                 Long telegramId = update.getMessage().getFrom().getId();
                 String username = update.getMessage().getFrom().getUserName();
 
-                log.info("User command received: {}", text);
-
-                if (!userService.existsByTelegramId(telegramId)) {
-                    String step = userService.getRegistrationStep(telegramId);
-
-                    if (step.isEmpty()) {
-                        userService.startRegistration(telegramId, username);
-                        SendMessage response = userCommandHandler.createDepartmentInlineKeyboard(chatId, 0);
-                        execute(response);
-                        return;
-                    }
-
-                    SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, text);
+                if (userService.isWaitingForTaskNumber(telegramId)) {
+                    SendMessage response = userCommandHandler.handleTaskSelection(chatId, telegramId, text);
+                    execute(response);
+                    return;
+                }
+                if (userCommandHandler.isWaitingForExtensionReason(telegramId)) {
+                    SendMessage response = userCommandHandler.handleExtensionReasonInput(chatId, telegramId, text);
                     execute(response);
                     return;
                 }
@@ -87,7 +83,9 @@ public class UserBot extends TelegramLongPollingBot {
                 execute(response);
             }
         } catch (TelegramApiException e) {
-            log.error("Error sending message", e);
+            log.error("❌ Error sending message", e);
+        } catch (Exception e) {
+            log.error("❌ Unexpected error", e);
         }
     }
 }

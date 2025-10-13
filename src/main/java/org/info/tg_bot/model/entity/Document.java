@@ -37,11 +37,11 @@ public class Document {
     @Column(name = "status", nullable = false)
     private DocumentStatus status;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "uploaded_by")
     private User uploadedBy;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "responsible_executor")
     private User executor;
 }
