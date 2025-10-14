@@ -23,6 +23,8 @@ public class UserService {
     // === Ожидание пользовательских действий ===
     private final Map<Long, Boolean> waitingForTaskNumber = new HashMap<>();
     private final Map<Long, Long> waitingForFile = new HashMap<>();
+    private final Map<Long, String> pendingCancellations = new HashMap<>();
+
 
     // ======================================================
     // ✅ Работа с пользователями
@@ -34,6 +36,10 @@ public class UserService {
 
     public boolean existsByTelegramId(Long telegramId) {
         return userRepository.existsByTelegramId(telegramId);
+    }
+
+    public void save(User user) {
+        userRepository.save(user);
     }
 
     // ======================================================
@@ -118,8 +124,24 @@ public class UserService {
     public void clearWaitingForFile(Long telegramId) {
         waitingForFile.remove(telegramId);
     }
+
     public Long getDocumentIdWaitingForFile(Long telegramId) {
         return waitingForFile.get(telegramId);
     }
 
+    public void setPendingCancellation(Long telegramId, String regNumber, String typeName) {
+        pendingCancellations.put(telegramId, regNumber + ":" + typeName);
+    }
+
+    public boolean isWaitingForCancellationReason(Long telegramId) {
+        return pendingCancellations.containsKey(telegramId);
+    }
+
+    public Optional<String> consumePendingCancellation(Long telegramId) {
+        return Optional.ofNullable(pendingCancellations.remove(telegramId));
+    }
+
+    public void clearPendingCancellation(Long telegramId) {
+        pendingCancellations.remove(telegramId);
+    }
 }

@@ -28,22 +28,26 @@ public class NotificationService {
 
     public void notifyAdmin(Long adminTelegramId, String messageText, InlineKeyboardMarkup keyboard) {
         try {
-            SendMessage message = SendMessage.builder()
-                    .chatId(adminTelegramId.toString())
-                    .text(messageText)
-                    .parseMode("Markdown")
-                    .replyMarkup(keyboard)
-                    .build();
+            SendMessage message = new SendMessage();
+            message.setChatId(adminTelegramId.toString());
+            message.setText(messageText);
+            message.setParseMode("HTML");
+            message.setReplyMarkup(keyboard);
 
-            adminBot.execute(message); // важно: через админ-бота
+            adminBot.execute(message);
+            log.info("✅ Notification with keyboard sent to admin {}", adminTelegramId);
         } catch (TelegramApiException e) {
-            log.error("Ошибка при отправке уведомления администратору {}: {}", adminTelegramId, e.getMessage());
+            log.error("❌ Ошибка при отправке уведомления администратору {}: {}", adminTelegramId, e.getMessage());
         }
     }
 
     private void sendMessage(TelegramLongPollingBot bot, Long telegramId, String text) {
         try {
-            SendMessage message = new SendMessage(telegramId.toString(), text);
+            SendMessage message = new SendMessage();
+            message.setChatId(telegramId.toString());
+            message.setText(text);
+            message.setParseMode("HTML");
+
             bot.execute(message);
         } catch (Exception e) {
             log.error("❌ Ошибка отправки уведомления пользователю {}: {}", telegramId, e.getMessage());

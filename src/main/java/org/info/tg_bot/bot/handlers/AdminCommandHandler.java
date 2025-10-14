@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.model.entity.Document;
 import org.info.tg_bot.model.entity.ExtensionRequest;
 import org.info.tg_bot.model.entity.User;
+import org.info.tg_bot.model.enums.CancellationType;
+import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.service.*;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
@@ -29,11 +31,14 @@ public class AdminCommandHandler {
     private final DocumentParserService documentParserService;
     private final ExtensionRequestService extensionRequestService;
     private final NotificationService notificationService;
+    private final DocumentCancellationService documentCancellationService;
 
     private final Map<Long, Long> waitingForNewDate = new HashMap<>();
+    private final Map<Long, String> waitingForRevisionReason = new HashMap<>();
+    private final Map<Long, String> pendingCancellations = new HashMap<>();
+
 
     // --- Commands ---
-
     public SendMessage handleStartCommand(Long chatId, String username) {
         String msg = String.format(
                 "👋 Здравствуйте, %s!\n\n" +
@@ -284,5 +289,195 @@ public class AdminCommandHandler {
 
     public boolean isWaitingForNewDate(Long adminTelegramId) {
         return waitingForNewDate.containsKey(adminTelegramId);
+    }
+
+    public SendMessage handleCloseWithoutExecution(Long chatId, String regNumber, Long adminTelegramId,
+                                                   CancellationType type, String reason) {
+        Optional<Document> documentOpt = documentService.findByRegNumber(regNumber);
+        if (documentOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Документ с номером " + regNumber + " не найден.");
+        }
+
+        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+        if (adminOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
+        }
+
+        Document document = documentOpt.get();
+        User admin = adminOpt.get();
+        User executor = document.getExecutor();
+
+        try {
+            DocumentStatus oldStatus = document.getStatus();
+            document.setStatus(DocumentStatus.CANCELLED);
+            documentService.save(document);
+
+            documentCancellationService.createCancellation(
+                    document,
+                    admin,
+                    reason,
+                    type,
+                    oldStatus
+            );
+
+            notificationService.notifyUser(
+                    executor.getTelegramId(),
+                    String.format(
+                            "❌ <b>Поручение закрыто без исполнения</b>\n\n" +
+                                    "📄 Поручение №%s\n" +
+                                    "📝 Описание: %s\n" +
+                                    "💬 Причина: %s\n" +
+                                    "👤 Закрыл: %s",
+                            document.getRegNumber(),
+                            document.getSummary(),
+                            reason,
+                            admin.getFullName()
+                    )
+            );
+
+            log.info("✅ Document {} closed without execution by admin {} (type={}, reason={})",
+                    regNumber, adminTelegramId, type, reason);
+
+            return new SendMessage(chatId.toString(),
+                    "✅ Поручение №" + regNumber + " закрыто без исполнения.\n💬 Причина: " + reason);
+        } catch (Exception e) {
+            log.error("❌ Error closing document {} without execution: {}", regNumber, e.getMessage(), e);
+            return new SendMessage(chatId.toString(), "⚠ Ошибка при закрытии поручения. Попробуйте позже.");
+        }
+    }
+
+    public SendMessage handleTaskCompleted(Long chatId, String regNumber, Long adminTelegramId) {
+        Optional<Document> documentOpt = documentService.findByRegNumber(regNumber);
+        if (documentOpt.isEmpty()) {
+            SendMessage message = new SendMessage(chatId.toString(), "⚠ Документ с номером " + regNumber + " не найден.");
+            message.enableHtml(true);
+            return message;
+        }
+
+        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+        if (adminOpt.isEmpty()) {
+            SendMessage message = new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
+            message.enableHtml(true);
+            return message;
+        }
+
+        Document document = documentOpt.get();
+        User admin = adminOpt.get();
+        User executor = document.getExecutor();
+
+        try {
+            document.setStatus(DocumentStatus.COMPLETED);
+            documentService.save(document);
+
+            log.info("WILD CUCUMBER: {}", executor.getDocuments());
+            executor.getDocuments().remove(document);
+            log.info("DOCUMENTS: {}", executor.getDocuments());
+            userService.save(executor);
+
+            notificationService.notifyUser(
+                    executor.getTelegramId(),
+                    String.format(
+                            "✅ <b>Поручение исполнено</b>\n\n" +
+                                    "📄 Поручение №%s\n" +
+                                    "📝 Описание: %s\n" +
+                                    "👤 Подтвердил: %s",
+                            document.getRegNumber(),
+                            document.getSummary(),
+                            admin.getFullName()
+                    )
+            );
+
+            log.info("✅ Document {} marked as completed by admin {} and removed from executor's documents", regNumber, adminTelegramId);
+
+            SendMessage message = new SendMessage(chatId.toString(), "✅ Поручение №" + regNumber + " отмечено как исполнено.");
+            message.enableHtml(true);
+            return message;
+        } catch (Exception e) {
+            log.error("❌ Error marking document {} as completed: {}", regNumber, e.getMessage(), e);
+            SendMessage message = new SendMessage(chatId.toString(), "⚠ Ошибка при подтверждении исполнения. Попробуйте позже.");
+            message.enableHtml(true);
+            return message;
+        }
+    }
+    public SendMessage handleSendForRevision(Long chatId, String regNumber, Long adminTelegramId) {
+        Optional<Document> documentOpt = documentService.findByRegNumber(regNumber);
+        if (documentOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Документ с номером " + regNumber + " не найден.");
+        }
+
+        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+        if (adminOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
+        }
+
+        Document document = documentOpt.get();
+
+        // Store the admin's telegramId and regNumber to wait for the revision reason
+        waitingForRevisionReason.put(adminTelegramId, regNumber);
+
+        String message = String.format(
+                "🔄 <b>Отправка поручения на доработку</b>\n\n" +
+                        "📄 Поручение №%s\n" +
+                        "📝 Описание: %s\n\n" +
+                        "Пожалуйста, укажите причину отправки на доработку.",
+                document.getRegNumber(),
+                document.getSummary()
+        );
+
+        SendMessage sendMessage = new SendMessage(chatId.toString(), message);
+        sendMessage.enableHtml(true);
+        return sendMessage;
+    }
+
+    public SendMessage handleRevisionReasonInput(Long chatId, Long adminTelegramId, String reason) {
+        if (!waitingForRevisionReason.containsKey(adminTelegramId)) {
+            return new SendMessage(chatId.toString(), "⚠ Нет активного запроса на доработку.");
+        }
+
+        String regNumber = waitingForRevisionReason.remove(adminTelegramId);
+        Optional<Document> documentOpt = documentService.findByRegNumber(regNumber);
+        if (documentOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Документ с номером " + regNumber + " не найден.");
+        }
+
+        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+        if (adminOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
+        }
+
+        Document document = documentOpt.get();
+        User admin = adminOpt.get();
+        User executor = document.getExecutor();
+
+        try {
+            document.setStatus(DocumentStatus.REVISION);
+            documentService.save(document);
+
+            notificationService.notifyUser(
+                    executor.getTelegramId(),
+                    String.format(
+                            "🔄 <b>Поручение отправлено на доработку</b>\n\n" +
+                                    "📄 Поручение №%s\n" +
+                                    "📝 Описание: %s\n" +
+                                    "💬 Причина доработки: %s\n" +
+                                    "👤 Отправил на доработку: %s\n\n" +
+                                    "Пожалуйста, доработайте и отправьте файл заново.",
+                            document.getRegNumber(),
+                            document.getSummary(),
+                            reason,
+                            admin.getFullName()
+                    )
+            );
+
+            log.info("✅ Document {} sent for revision by admin {} with reason: {}", regNumber, adminTelegramId, reason);
+
+            return new SendMessage(chatId.toString(), "✅ Поручение №" + regNumber + " отправлено на доработку с указанием причины.");
+        } catch (Exception e) {
+            log.error("❌ Error sending document {} for revision: {}", regNumber, e.getMessage(), e);
+            return new SendMessage(chatId.toString(), "⚠ Ошибка при отправке на доработку. Попробуйте позже.");
+        }
+    }
+    public boolean isWaitingForRevisionReason(Long adminTelegramId) {
+        return waitingForRevisionReason.containsKey(adminTelegramId);
     }
 }

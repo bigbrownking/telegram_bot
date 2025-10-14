@@ -1,5 +1,6 @@
 package org.info.tg_bot.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.info.tg_bot.bot.common.AdminBot;
 import org.info.tg_bot.bot.common.UserBot;
 import org.springframework.context.annotation.Bean;
@@ -13,15 +14,13 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 public class TelegramConfig {
 
     @Bean
-    public TelegramBotsApi telegramBotsApi(UserBot userBot, AdminBot adminBot) throws TelegramApiException {
-        TelegramBotsApi api = new TelegramBotsApi(DefaultBotSession.class);
-        api.registerBot(userBot);
-        api.registerBot(adminBot);
-        return api;
-    }
-    @Bean
     public DefaultBotOptions defaultBotOptions() {
         return new DefaultBotOptions();
+    }
+
+    @Bean
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper();
     }
 
 }

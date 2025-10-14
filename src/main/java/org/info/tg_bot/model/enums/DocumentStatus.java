@@ -4,7 +4,7 @@ import lombok.Getter;
 
 @Getter
 public enum DocumentStatus {
-    PENDING("На исполнении"),
+    PENDING("На рассмотрении"),
     IN_PROGRESS("В работе"),
     COMPLETED("Исполнено"),
     OVERDUE("Просрочено"),

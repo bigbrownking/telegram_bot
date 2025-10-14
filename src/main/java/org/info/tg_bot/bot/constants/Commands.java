@@ -7,13 +7,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Component
-@RequiredArgsConstructor
 public class Commands {
     public static final String START = "/start";
     public static final String UPLOAD = "/upload";
     public static final String STATUS = "/status";
     public static final String HELP = "/help";
-
     public List<String> getAllCommands(){
         return new ArrayList<>(){};
     }

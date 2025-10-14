@@ -83,7 +83,7 @@ public class DocumentParserService {
                         case "summary" -> builder.summary(getString(cell));
                         case "department" -> builder.department(getString(cell));
                         case "executionDate" -> builder.executionDate(getLocalDate(cell, formatter));
-                        case "status" -> builder.status(DocumentStatus.PENDING);
+                        case "status" -> builder.status(DocumentStatus.IN_PROGRESS);
                         case "executor" -> {
                             String executorRaw = getString(cell);
                             if (executorRaw != null && !executorRaw.isBlank()) {
@@ -100,7 +100,7 @@ public class DocumentParserService {
                 }
 
                 Document document = builder
-                        .status(DocumentStatus.PENDING)
+                        .status(DocumentStatus.IN_PROGRESS)
                         .uploadedBy(uploader)
                         .executor(executorUser)
                         .build();

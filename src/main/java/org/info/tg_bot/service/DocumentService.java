@@ -4,10 +4,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.model.entity.Document;
 import org.info.tg_bot.model.entity.User;
+import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.repository.DocumentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,5 +45,16 @@ public class DocumentService {
             documentRepository.deleteById(id);
             log.info("🗑️ Document {} deleted", id);
         }
+    }
+    @Transactional(readOnly = true)
+    public List<Document> findActiveDocumentsByExecutor(User executor) {
+        return documentRepository.findActiveDocumentsByExecutor(executor,
+                List.of(DocumentStatus.CANCELLED, DocumentStatus.COMPLETED));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Document> findActiveDocumentsNotCompletedOrCancelled(LocalDate today) {
+        return documentRepository.findByExecutionDateBeforeAndStatusNotIn(today,
+                List.of(DocumentStatus.COMPLETED, DocumentStatus.CANCELLED));
     }
 }

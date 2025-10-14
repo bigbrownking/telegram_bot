@@ -6,11 +6,9 @@ import org.info.tg_bot.model.entity.Document;
 import org.info.tg_bot.model.entity.ExtensionRequest;
 import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.model.enums.DepartmentType;
+import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.model.enums.PositionType;
-import org.info.tg_bot.service.DocumentService;
-import org.info.tg_bot.service.ExtensionRequestService;
-import org.info.tg_bot.service.NotificationService;
-import org.info.tg_bot.service.UserService;
+import org.info.tg_bot.service.*;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
@@ -31,11 +29,12 @@ public class UserCommandHandler {
     private final DocumentService documentService;
     private final NotificationService notificationService;
     private final ExtensionRequestService extensionRequestService;
+    private final FileForwardingService fileForwardingService;
+
 
     private static final int DEPARTMENTS_PER_PAGE = 5;
     private static final int POSITIONS_PER_PAGE = 5;
 
-    // Хранит telegramId пользователя -> documentId для ожидания причины продления
     private final Map<Long, Long> waitingForExtensionReason = new HashMap<>();
 
     // ---------- /start ----------
@@ -177,18 +176,23 @@ public class UserCommandHandler {
         }
 
         User user = optionalUser.get();
-        if (user.getDocuments() == null || user.getDocuments().isEmpty()) {
-            return new SendMessage(chatId.toString(), "📭 У вас пока нет назначенных поручений.");
+
+        List<Document> activeDocuments = documentService.findActiveDocumentsByExecutor(user);
+
+        if (activeDocuments.isEmpty()) {
+            return new SendMessage(chatId.toString(), "📭 У вас пока нет активных поручений.");
         }
 
         StringBuilder sb = new StringBuilder("📋 *Ваши поручения:*\n\n");
         int counter = 1;
-        for (Document doc : user.getDocuments()) {
-            sb.append(String.format("%d️⃣  Номер поручения: %s %s — срок: %s\n",
+        for (Document doc : activeDocuments) {
+            sb.append(String.format("%d️⃣  Номер поручения: %s %s — срок: %s, статус: %s\n",
                     counter++,
                     doc.getRegNumber(),
                     doc.getSummary(),
-                    doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан"));
+                    doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан",
+                    doc.getStatus().getDisplayName()));
+
         }
         sb.append("\nВведите номер поручения, чтобы просмотреть детали.");
 
@@ -201,6 +205,9 @@ public class UserCommandHandler {
 
     // ---------- Обработка callback-кнопок ----------
     public SendMessage handleCallback(Long chatId, Long telegramId, String callbackData) {
+        if (userService.isWaitingForTaskNumber(telegramId)) {
+            userService.clearWaitingForTaskNumber(telegramId);
+        }
         // --- Отправка результата ---
         if (callbackData.startsWith("send_result:")) {
             String regNumber = callbackData.substring("send_result:".length());
@@ -227,7 +234,6 @@ public class UserCommandHandler {
 
             Document doc = optionalDoc.get();
 
-            // Сохраняем ID документа для последующей обработки причины
             waitingForExtensionReason.put(telegramId, doc.getId());
 
             return new SendMessage(chatId.toString(),
@@ -375,25 +381,50 @@ public class UserCommandHandler {
             User admin = doc.getUploadedBy();
 
             if (admin == null || admin.getTelegramId() == null) {
+                userService.clearWaitingForFile(telegramId);
                 return new SendMessage(chatId.toString(), "⚠ Администратор не найден. Файл не был отправлен.");
             }
 
-            SendDocument sendDoc = new SendDocument();
-            sendDoc.setChatId(admin.getTelegramId().toString());
-            sendDoc.setDocument(new InputFile(file.getFileId()));
-            sendDoc.setCaption(String.format("📬 Исполнитель *%s* отправил результат по поручению №%s (%s)",
-                    userService.findByTelegramId(telegramId).map(User::getFullName).orElse("Неизвестный пользователь"),
-                    doc.getRegNumber(),
-                    doc.getSummary()));
-            sendDoc.setParseMode("Markdown");
+            Optional<User> userOpt = userService.findByTelegramId(telegramId);
+            if (userOpt.isEmpty()) {
+                userService.clearWaitingForFile(telegramId);
+                return new SendMessage(chatId.toString(), "⚠ Пользователь не найден.");
+            }
 
-            bot.execute(sendDoc);
+            User executor = userOpt.get();
+
+            String caption = String.format(
+                    "📬 <b>Результат выполнения поручения</b>\n\n" +
+                            "👤 Исполнитель: %s\n" +
+                            "📄 Поручение №%s\n" +
+                            "📝 Описание: %s\n" +
+                            "🗓 Срок исполнения: %s\n" +
+                            "📎 Файл: %s",
+                    executor.getFullName(),
+                    doc.getRegNumber(),
+                    doc.getSummary(),
+                    doc.getExecutionDate(),
+                    file.getFileName()
+            );
+
+            fileForwardingService.sendDocumentToAdmin(
+                    admin.getTelegramId(),
+                    caption,
+                    file.getFileId(),
+                    file.getFileName(),
+                    doc.getRegNumber()
+            );
 
             userService.clearWaitingForFile(telegramId);
-            return new SendMessage(chatId.toString(), "✅ Файл успешно отправлен администратору.");
+            doc.setStatus(DocumentStatus.PENDING);
+            documentService.save(doc);
+            log.info("✅ File sent from user {} to admin {} for document {}",
+                    telegramId, admin.getTelegramId(), doc.getRegNumber());
+
+            return new SendMessage(chatId.toString(), "✅ Файл успешно отправлен администратору на рассмотрение.");
 
         } catch (Exception e) {
-            log.error("Ошибка при пересылке файла: {}", e.getMessage(), e);
+            log.error("❌ Ошибка при пересылке файла: {}", e.getMessage(), e);
             return new SendMessage(chatId.toString(), "⚠ Ошибка при отправке файла. Попробуйте позже.");
         }
     }
