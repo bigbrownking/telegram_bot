@@ -86,6 +86,21 @@ public class AdminBot extends TelegramLongPollingBot {
                 String callbackData = update.getCallbackQuery().getData();
                 String callbackQueryId = update.getCallbackQuery().getId();
 
+                if (callbackData.startsWith("approve_extend:")) {
+                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
+                    execute(adminCommandHandler.handleApproveExtendRequest(chatId, requestId, telegramId));
+                    execute(new AnswerCallbackQuery(callbackQueryId));
+                    return;
+                }
+
+                if (callbackData.startsWith("reject_extend:")) {
+                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
+                    execute(adminCommandHandler.handleRejectExtendRequest(chatId, requestId, telegramId));
+                    execute(new AnswerCallbackQuery(callbackQueryId));
+                    return;
+                }
+
+
                 if (callbackData.startsWith("close_without_execution:")) {
                     String regNumber = callbackData.split(":")[1];
 
@@ -186,6 +201,11 @@ public class AdminBot extends TelegramLongPollingBot {
                 // Обработка причины доработки
                 if (userService.isWaitingForRevisionReason(telegramId)) {
                     execute(adminCommandHandler.handleRevisionReasonInput(chatId, telegramId, text));
+                    return;
+                }
+                // Обработка даты
+                if (userService.isWaitingForNewDate(telegramId)) {
+                    execute(adminCommandHandler.handleNewExecutionDate(chatId, telegramId, text));
                     return;
                 }
 

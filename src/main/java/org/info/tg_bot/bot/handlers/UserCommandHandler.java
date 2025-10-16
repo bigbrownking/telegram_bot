@@ -362,7 +362,7 @@ public class UserCommandHandler {
             notificationService.notifyUser(boss.getTelegramId(), notificationText, keyboard);
 
             return new SendMessage(chatId.toString(),
-                    "✅ Запрос на продление отправлен администратору. Ожидайте ответа.");
+                    "✅ Запрос на продление отправлен руководителю. Ожидайте ответа.");
 
         } catch (IllegalStateException e) {
             log.warn("Extension request already exists: {}", e.getMessage());
@@ -746,22 +746,6 @@ public class UserCommandHandler {
                     request,
                     admin,
                     String.format("Срок продлён с %s до %s", oldDate, newDate)
-            );
-
-            notificationService.notifyUser(
-                    request.getUser().getTelegramId(),
-                    String.format(
-                            "✅ <b>Запрос одобрен!</b>\n\n" +
-                                    "📄 Поручение №%s\n" +
-                                    "🗓 Старый срок: %s\n" +
-                                    "🗓 Новый срок: %s\n" +
-                                    "👤 Одобрил: %s",
-                            doc.getRegNumber(),
-                            oldDate,
-                            newDate,
-                            admin.getFullName()
-                    ),
-                    null
             );
 
             InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(List.of(
