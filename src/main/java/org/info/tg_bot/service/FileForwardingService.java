@@ -37,7 +37,8 @@ public class FileForwardingService {
         }
     }
 
-    public void sendDocumentToAdmin(Long adminTelegramId, String caption, String fileId, String fileName, String regNumber) {
+    public void sendDocumentToAdmin(Long adminTelegramId, String caption, String fileId, String fileName, String regNumber,
+                                    InlineKeyboardMarkup inlineKeyboardMarkup) {
         if (adminBot == null) {
             log.error("❌ AdminBot is not initialized. Cannot send file.");
             return;
@@ -66,30 +67,14 @@ public class FileForwardingService {
                     return;
                 }
 
-                InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
-                keyboard.setKeyboard(List.of(
-                        List.of(
-                                InlineKeyboardButton.builder()
-                                        .text("Закрыть без исполнения")
-                                        .callbackData("close_without_execution:" + regNumber)
-                                        .build(),
-                                InlineKeyboardButton.builder()
-                                        .text("Поручение исполнено")
-                                        .callbackData("task_completed:" + regNumber)
-                                        .build(),
-                                InlineKeyboardButton.builder()
-                                        .text("Отправить на доработку")
-                                        .callbackData("send_for_revision:" + regNumber)
-                                        .build()
-                        )
-                ));
+
 
                 SendDocument sendDocument = new SendDocument();
                 sendDocument.setChatId(adminTelegramId.toString());
                 sendDocument.setCaption(caption);
                 sendDocument.setParseMode("HTML");
                 sendDocument.setDocument(new InputFile(fileStream, fileName));
-                sendDocument.setReplyMarkup(keyboard);
+                sendDocument.setReplyMarkup(inlineKeyboardMarkup);
 
                 adminBot.execute(sendDocument);
                 log.info("📄 File '{}' sent to admin {} via AdminBot with action buttons", fileName, adminTelegramId);

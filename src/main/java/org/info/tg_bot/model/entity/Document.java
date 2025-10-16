@@ -2,10 +2,13 @@ package org.info.tg_bot.model.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.model.enums.UserRole;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -44,4 +47,12 @@ public class Document {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "responsible_executor")
     private User executor;
+
+    @CreationTimestamp
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 }

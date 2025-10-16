@@ -2,12 +2,14 @@ package org.info.tg_bot.bot.handlers;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.info.tg_bot.model.entity.Document;
-import org.info.tg_bot.model.entity.ExtensionRequest;
-import org.info.tg_bot.model.entity.User;
+import org.info.tg_bot.model.entity.*;
+import org.info.tg_bot.model.enums.BranchType;
 import org.info.tg_bot.model.enums.DepartmentType;
 import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.model.enums.PositionType;
+import org.info.tg_bot.repository.BranchRepository;
+import org.info.tg_bot.repository.DepartmentRepository;
+import org.info.tg_bot.repository.PositionRepository;
 import org.info.tg_bot.service.*;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
@@ -30,6 +32,11 @@ public class UserCommandHandler {
     private final NotificationService notificationService;
     private final ExtensionRequestService extensionRequestService;
     private final FileForwardingService fileForwardingService;
+    private final ExecutionResultService executionResultService;
+
+    private final DepartmentRepository departmentRepository;
+    private final PositionRepository positionRepository;
+    private final BranchRepository branchRepository;
 
 
     private static final int DEPARTMENTS_PER_PAGE = 5;
@@ -63,93 +70,140 @@ public class UserCommandHandler {
         data = data == null ? "" : data.strip();
 
         switch (currentStep) {
+
             case "DEPARTMENT" -> {
                 if (data.startsWith("dept:")) {
-                    int index = Integer.parseInt(data.substring(5));
-                    DepartmentType department = DepartmentType.values()[index];
-                    userService.updateRegistrationDepartment(telegramId, department.getDisplayName());
-                    return createPositionInlineKeyboard(chatId, 0);
+                    Long id = Long.parseLong(data.substring(5));
+                    Department department = departmentRepository.findById(id)
+                            .orElseThrow(() -> new RuntimeException("Department not found"));
+                    userService.updateRegistrationDepartment(telegramId, department.getName());
+                    return createBranchInlineKeyboard(chatId, 0);
                 } else if (data.startsWith("page:")) {
                     int page = Integer.parseInt(data.substring(5));
                     return createDepartmentInlineKeyboard(chatId, page);
                 } else {
-                    DepartmentType department = DepartmentType.fromDisplayName(data);
-                    userService.updateRegistrationDepartment(telegramId,
-                            department != null ? department.getDisplayName() : data);
+                    Department department = departmentRepository.findByName(data)
+                            .orElseThrow(() -> new RuntimeException("Department not found"));
+                    userService.updateRegistrationDepartment(telegramId, department.getName());
+                    return createBranchInlineKeyboard(chatId, 0);
+                }
+            }
+
+            case "BRANCH" -> {
+                if (data.startsWith("branch:")) {
+                    Long id = Long.parseLong(data.substring(7));
+                    Branch branch = branchRepository.findById(id)
+                            .orElseThrow(() -> new RuntimeException("Branch not found"));
+                    userService.updateRegistrationBranch(telegramId, branch.getName());
+                    return createPositionInlineKeyboard(chatId, 0);
+                } else if (data.startsWith("branchpage:")) {
+                    int page = Integer.parseInt(data.substring(11));
+                    return createBranchInlineKeyboard(chatId, page);
+                } else {
+                    Branch branch = branchRepository.findByName(data)
+                            .orElseThrow(() -> new RuntimeException("Branch not found"));
+                    userService.updateRegistrationBranch(telegramId, branch.getName());
                     return createPositionInlineKeyboard(chatId, 0);
                 }
             }
+
             case "POSITION" -> {
                 if (data.startsWith("pos:")) {
-                    int index = Integer.parseInt(data.substring(4));
-                    PositionType position = PositionType.values()[index];
-                    userService.updateRegistrationPosition(telegramId, position.getDisplayName());
+                    Long id = Long.parseLong(data.substring(4));
+                    Position position = positionRepository.findById(id)
+                            .orElseThrow(() -> new RuntimeException("Position not found"));
+                    userService.updateRegistrationPosition(telegramId, position.getName());
                     return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя:");
                 } else if (data.startsWith("pospage:")) {
                     int page = Integer.parseInt(data.substring(8));
                     return createPositionInlineKeyboard(chatId, page);
                 } else {
-                    PositionType position = PositionType.fromDisplayName(data);
-                    userService.updateRegistrationPosition(telegramId,
-                            position != null ? position.getDisplayName() : data);
+                    Position position = positionRepository.findByName(data)
+                            .orElseThrow(() -> new RuntimeException("Position not found"));
+                    userService.updateRegistrationPosition(telegramId, position.getName());
                     return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя:");
                 }
             }
+
             case "NAME" -> {
                 userService.updateRegistrationName(telegramId, data);
                 return new SendMessage(chatId.toString(), "Пожалуйста, введите вашу фамилию:");
             }
+
             case "SURNAME" -> {
                 userService.updateRegistrationSurname(telegramId, data);
                 return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше отчество:");
             }
+
             case "FATHERNAME" -> {
                 userService.completeRegistration(telegramId, data);
                 User user = userService.findByTelegramId(telegramId).orElseThrow();
                 return new SendMessage(chatId.toString(),
                         String.format("✅ Регистрация завершена! Добро пожаловать, %s!", user.getFullName()));
             }
+
             default -> {
                 return new SendMessage(chatId.toString(), "Ошибка регистрации. Используйте /start для начала.");
             }
+
         }
     }
 
     // ---------- Выбор отдела / должности ----------
     private SendMessage createDepartmentInlineKeyboard(Long chatId, int page) {
-        DepartmentType[] departments = DepartmentType.values();
+        List<Department> departments = departmentRepository.findAll();
         int start = page * DEPARTMENTS_PER_PAGE;
-        int end = Math.min(start + DEPARTMENTS_PER_PAGE, departments.length);
+        int end = Math.min(start + DEPARTMENTS_PER_PAGE, departments.size());
 
         SendMessage message = new SendMessage(chatId.toString(),
                 "Пожалуйста, выберите ваш отдел из списка или напишите его вручную:");
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         for (int i = start; i < end; i++) {
-            DepartmentType dept = departments[i];
-            rows.add(List.of(createButton(dept.getDisplayName(), "dept:" + i)));
+            Department dept = departments.get(i);
+            rows.add(List.of(createButton(dept.getName(), "dept:" + i)));
         }
 
-        addPagination(rows, page, departments.length, "page:");
+        addPagination(rows, page, departments.size(), "page:");
         message.setReplyMarkup(new InlineKeyboardMarkup(rows));
         return message;
     }
 
+    private SendMessage createBranchInlineKeyboard(Long chatId, int page) {
+        List<Branch> branches = branchRepository.findAll();
+        int start = page * 5;
+        int end = Math.min(start + 5, branches.size());
+
+        SendMessage message = new SendMessage(chatId.toString(),
+                "Пожалуйста, выберите ваше управление из списка или введите вручную:");
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        for (int i = start; i < end; i++) {
+            Branch branch = branches.get(i);
+            rows.add(List.of(createButton(branch.getName(), "branch:" + i)));
+        }
+
+        addPagination(rows, page, branches.size(), "branchpage:");
+        message.setReplyMarkup(new InlineKeyboardMarkup(rows));
+        return message;
+    }
+
+
     private SendMessage createPositionInlineKeyboard(Long chatId, int page) {
-        PositionType[] positions = PositionType.values();
+        List<Position> positions = positionRepository.findAll();
         int start = page * POSITIONS_PER_PAGE;
-        int end = Math.min(start + POSITIONS_PER_PAGE, positions.length);
+        int end = Math.min(start + POSITIONS_PER_PAGE, positions.size());
 
         SendMessage message = new SendMessage(chatId.toString(),
                 "Пожалуйста, выберите вашу должность из списка или введите вручную:");
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         for (int i = start; i < end; i++) {
-            PositionType pos = positions[i];
-            rows.add(List.of(createButton(pos.getDisplayName(), "pos:" + i)));
+            Position pos = positions.get(i);
+            rows.add(List.of(createButton(pos.getName(), "pos:" + i)));
         }
 
-        addPagination(rows, page, positions.length, "pospage:");
+        addPagination(rows, page, positions.size(), "pospage:");
         message.setReplyMarkup(new InlineKeyboardMarkup(rows));
         return message;
     }
@@ -221,7 +275,7 @@ public class UserCommandHandler {
             userService.setWaitingForFile(telegramId, doc.getId());
 
             return new SendMessage(chatId.toString(),
-                    "📤 Пожалуйста, отправьте файл для поручения №" + regNumber + ".");
+                    "📤 Пожалуйста, отправьте файл/текст для поручения №" + regNumber + ".");
         }
 
         // --- Запрос на продление ---
@@ -364,7 +418,7 @@ public class UserCommandHandler {
                 .build();
     }
 
-    public SendMessage handleFileUpload(Long chatId, Long telegramId, org.telegram.telegrambots.meta.api.objects.Document file, TelegramLongPollingBot bot) {
+    public SendMessage handleFileUpload(Long chatId, Long telegramId, org.telegram.telegrambots.meta.api.objects.Document file) {
         try {
             Long documentId = userService.getDocumentIdWaitingForFile(telegramId);
             if (documentId == null) {
@@ -406,13 +460,26 @@ public class UserCommandHandler {
                     doc.getExecutionDate(),
                     file.getFileName()
             );
-
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+            keyboard.setKeyboard(List.of(
+                    List.of(
+                            InlineKeyboardButton.builder()
+                                    .text("Поручение исполнено")
+                                    .callbackData("task_completed:" + doc.getRegNumber())
+                                    .build(),
+                            InlineKeyboardButton.builder()
+                                    .text("Отправить на доработку")
+                                    .callbackData("send_for_revision:" + doc.getRegNumber())
+                                    .build()
+                    )
+            ));
             fileForwardingService.sendDocumentToAdmin(
                     admin.getTelegramId(),
                     caption,
                     file.getFileId(),
                     file.getFileName(),
-                    doc.getRegNumber()
+                    doc.getRegNumber(),
+                    keyboard
             );
 
             userService.clearWaitingForFile(telegramId);
@@ -426,6 +493,82 @@ public class UserCommandHandler {
         } catch (Exception e) {
             log.error("❌ Ошибка при пересылке файла: {}", e.getMessage(), e);
             return new SendMessage(chatId.toString(), "⚠ Ошибка при отправке файла. Попробуйте позже.");
+        }
+    }
+
+    public SendMessage handleTextResultSubmission(Long chatId, Long telegramId, String resultText) {
+        try {
+            Long documentId = userService.getDocumentIdWaitingForFile(telegramId);
+            if (documentId == null) {
+                return new SendMessage(chatId.toString(), "⚠ Не найдено поручение для отправки результата. Попробуйте снова.");
+            }
+
+            Optional<Document> optionalDoc = documentService.findById(documentId);
+            if (optionalDoc.isEmpty()) {
+                userService.clearWaitingForFile(telegramId);
+                return new SendMessage(chatId.toString(), "⚠ Поручение не найдено. Попробуйте снова.");
+            }
+
+            Document doc = optionalDoc.get();
+            User admin = doc.getUploadedBy();
+
+            if (admin == null || admin.getTelegramId() == null) {
+                userService.clearWaitingForFile(telegramId);
+                return new SendMessage(chatId.toString(), "⚠ Администратор не найден. Сообщение не было отправлено.");
+            }
+
+            Optional<User> userOpt = userService.findByTelegramId(telegramId);
+            if (userOpt.isEmpty()) {
+                userService.clearWaitingForFile(telegramId);
+                return new SendMessage(chatId.toString(), "⚠ Пользователь не найден.");
+            }
+
+            User executor = userOpt.get();
+
+            // 📩 Формируем сообщение для администратора
+            String message = String.format(
+                    "📬 <b>Результат выполнения поручения</b>\n\n" +
+                            "👤 Исполнитель: %s\n" +
+                            "📄 Поручение №%s\n" +
+                            "📝 Описание: %s\n" +
+                            "🗓 Срок исполнения: %s\n" +
+                            "💬 Текст результата:\n%s",
+                    executor.getFullName(),
+                    doc.getRegNumber(),
+                    doc.getSummary(),
+                    doc.getExecutionDate(),
+                    resultText
+            );
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+            keyboard.setKeyboard(List.of(
+                    List.of(
+                            InlineKeyboardButton.builder()
+                                    .text("Поручение исполнено")
+                                    .callbackData("task_completed:" + doc.getRegNumber())
+                                    .build(),
+                            InlineKeyboardButton.builder()
+                                    .text("Отправить на доработку")
+                                    .callbackData("send_for_revision:" + doc.getRegNumber())
+                                    .build()
+                    )
+            ));
+            // 📢 Отправляем через NotificationService
+            notificationService.notifyAdmin(admin.getTelegramId(), message, keyboard);
+
+            // 🔄 Обновляем статус документа
+            doc.setStatus(DocumentStatus.PENDING);
+            documentService.save(doc);
+
+            userService.clearWaitingForFile(telegramId);
+
+            log.info("✅ Text result sent from user {} to admin {} for document {}",
+                    telegramId, admin.getTelegramId(), doc.getRegNumber());
+
+            return new SendMessage(chatId.toString(), "✅ Текстовый результат успешно отправлен администратору на рассмотрение.");
+
+        } catch (Exception e) {
+            log.error("❌ Ошибка при обработке текстового результата: {}", e.getMessage(), e);
+            return new SendMessage(chatId.toString(), "⚠ Ошибка при отправке результата. Попробуйте позже.");
         }
     }
 
@@ -444,4 +587,55 @@ public class UserCommandHandler {
                 """;
         return new SendMessage(chatId.toString(), helpText);
     }
-}
+    public SendMessage handleMyDaddy(Long chatId, Long telegramId) {
+        Optional<User> optionalUser = userService.findByTelegramId(telegramId);
+        if (optionalUser.isEmpty()) {
+            return new SendMessage(chatId.toString(), "❌ Вы не зарегистрированы. Используйте /start.");
+        }
+
+        User user = optionalUser.get();
+        User daddy = userService.findBoss(telegramId);
+
+        if (daddy == null) {
+            String noDaddyMessage = String.format(
+                    "👤 Ваш руководитель не найден.\n\n" +
+                            "📝 Ваша должность: %s\n" +
+                            "🏢 Управление: %s\n" +
+                            "📋 Отдел: %s",
+                    escapeMarkdown(user.getPosition().getName()),
+                    escapeMarkdown(user.getBranch().getName()),
+                    escapeMarkdown(user.getDepartment().getName())
+            );
+            return new SendMessage(chatId.toString(), noDaddyMessage);
+        }
+
+        String message = String.format(
+                "👤 *Ваш руководитель:*\n\n" +
+                        "📝 Должность: %s\n" +
+                        "🏢 Управление: %s\n" +
+                        "📋 Отдел: %s\n" +
+                        "👤 ФИО: %s\n" +
+                        "📱 Telegram: %s",
+                escapeMarkdown(daddy.getPosition().getName()),
+                escapeMarkdown(daddy.getBranch().getName()),
+                escapeMarkdown(daddy.getDepartment().getName()),
+                escapeMarkdown(daddy.getFullName()),
+                daddy.getTelegramUsername() != null ? "@" + escapeMarkdown(daddy.getTelegramUsername()) : "не указан"
+        );
+
+        return SendMessage.builder()
+                .chatId(chatId.toString())
+                .text(message)
+                .parseMode("MarkdownV2")
+                .build();
+    }
+
+    private String escapeMarkdown(String text) {
+        if (text == null) return "";
+        return text.replace("\\", "\\\\")
+                .replace("*", "\\*")
+                .replace("_", "\\_")
+                .replace("`", "\\`")
+                .replace("[", "\\[")
+                .replace("]", "\\]");
+    }}

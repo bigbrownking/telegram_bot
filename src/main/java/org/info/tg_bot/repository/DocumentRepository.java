@@ -32,4 +32,11 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     List<Document> findByExecutionDateBeforeAndStatusNotIn(LocalDate today, List<DocumentStatus> statuses);
 
     Optional<Document> findByRegNumber(String regNumber);
+
+    @EntityGraph(attributePaths = {"uploadedBy", "executor"})
+    List<Document> findByUploadedByOrderByCreatedAtDesc(User uploadedBy);
+
+    @EntityGraph(attributePaths = {"uploadedBy", "executor"})
+    List<Document> findByUploadedByAndStatusOrderByCreatedAtDesc(User uploadedBy, DocumentStatus status);
+
 }

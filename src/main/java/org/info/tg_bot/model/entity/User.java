@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.info.tg_bot.model.enums.BranchType;
+import org.info.tg_bot.model.enums.DepartmentType;
+import org.info.tg_bot.model.enums.PositionType;
 import org.info.tg_bot.model.enums.UserRole;
 
 import java.time.LocalDateTime;
@@ -45,11 +48,17 @@ public class User {
     @Column(name = "fathername")
     private String fathername;
 
-    @Column(name = "department")
-    private String department;
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "department_id", nullable = false)
+    private Department department;
 
-    @Column(name = "position")
-    private String position;
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "branch_id", nullable = false)
+    private Branch branch;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "position_id", nullable = false)
+    private Position position;
 
     @OneToMany(mappedBy = "executor", fetch = FetchType.EAGER)
     private Set<Document> documents = new HashSet<>();

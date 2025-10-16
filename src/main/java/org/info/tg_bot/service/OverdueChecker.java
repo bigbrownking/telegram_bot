@@ -20,7 +20,6 @@ public class OverdueChecker {
     private final NotificationService notificationService;
 
     @Scheduled(cron = "0 0 5 * * ?")
-    //  @Scheduled(cron = "0 * * * * ?")
     public void checkOverdueDocuments() {
         LocalDate today = LocalDate.now();
         List<Document> activeDocuments = documentService.findActiveDocumentsNotCompletedOrCancelled(today);

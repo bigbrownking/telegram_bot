@@ -1,6 +1,7 @@
 package org.info.tg_bot.model.enums;
 
 import java.util.Arrays;
+import java.util.stream.Collectors;
 
 public enum DepartmentType {
     АДМИНИСТРАТИВНЫЙ_ДЕПАРТАМЕНТ,
@@ -28,7 +29,13 @@ public enum DepartmentType {
     УПРАВЛЕНИЕ_ПО_СМИ;
 
     public String getDisplayName() {
-        return name().replace('_', ' ');
+        return Arrays.stream(name().split("_"))
+                .map(word -> {
+                    if (word.isEmpty()) return word;
+                    return Character.toUpperCase(word.charAt(0)) +
+                            word.substring(1).toLowerCase();
+                })
+                .collect(Collectors.joining(" "));
     }
 
     public static DepartmentType fromDisplayName(String text) {

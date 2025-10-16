@@ -57,4 +57,13 @@ public class DocumentService {
         return documentRepository.findByExecutionDateBeforeAndStatusNotIn(today,
                 List.of(DocumentStatus.COMPLETED, DocumentStatus.CANCELLED));
     }
+    @Transactional(readOnly = true)
+    public List<Document> findByUploadedBy(User uploadedBy) {
+        return documentRepository.findByUploadedByOrderByCreatedAtDesc(uploadedBy);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Document> findByUploadedByAndStatus(User uploadedBy, DocumentStatus status) {
+        return documentRepository.findByUploadedByAndStatusOrderByCreatedAtDesc(uploadedBy, status);
+    }
 }

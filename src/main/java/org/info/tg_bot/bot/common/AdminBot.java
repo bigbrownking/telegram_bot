@@ -151,7 +151,7 @@ public class AdminBot extends TelegramLongPollingBot {
 
                 if (callbackData.startsWith("task_completed:")) {
                     String regNumber = callbackData.split(":")[1];
-                    execute(adminCommandHandler.handleTaskCompleted(chatId, regNumber, telegramId));
+                    execute(adminCommandHandler.handleTaskCompleted(chatId, regNumber, telegramId, null)); // Initial call with no feedback
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
@@ -162,42 +162,69 @@ public class AdminBot extends TelegramLongPollingBot {
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
+
+                if (callbackData.startsWith("tasks_filter:")) {
+                    String statusFilter = callbackData.substring("tasks_filter:".length());
+                    execute(adminCommandHandler.handleTasksFilter(chatId, telegramId, statusFilter));
+                    execute(new AnswerCallbackQuery(callbackQueryId));
+                    return;
+                }
+
+                if (callbackData.equals("tasks_back")) {
+                    execute(adminCommandHandler.handleTasksCommand(chatId, telegramId));
+                    execute(new AnswerCallbackQuery(callbackQueryId));
+                    return;
+                }
             }
 
-            // Обработка текстовых сообщений
+            // ======================================================
+            // ✅ Обработка текстовых сообщений
+            // ======================================================
             if (update.hasMessage() && update.getMessage().hasText()) {
                 String text = update.getMessage().getText().trim();
                 String username = update.getMessage().getFrom().getUserName();
 
-                if (userService.isWaitingForCancellationReason(chatId)) {
-                    Optional<String> dataOpt = userService.consumePendingCancellation(chatId);
-                    if (dataOpt.isPresent()) {
-                        String[] parts = dataOpt.get().split(":");
-                        String regNumber = parts[0];
-                        CancellationType type = CancellationType.valueOf(parts[1]);
-
-                        execute(adminCommandHandler.handleCloseWithoutExecution(
-                                chatId, regNumber, telegramId, type, text
-                        ));
-                        return;
-                    }
+                // Обработка номера документа для отмены
+                if (userService.isWaitingForCancelDocumentNumber(telegramId)) {
+                    execute(adminCommandHandler.handleCancelDocumentNumberInput(chatId, telegramId, text));
+                    return;
                 }
 
-                if (adminCommandHandler.isWaitingForNewDate(telegramId)) {
+                // Обработка причины отмены
+                if (userService.isWaitingForCancellationReason(chatId)) {
+                    execute(adminCommandHandler.handleCancelReasonInput(chatId, telegramId, text));
+                    return;
+                }
+
+                // Обработка продления срока
+                if (userService.isWaitingForNewDate(telegramId)) {
                     execute(adminCommandHandler.handleNewExecutionDate(chatId, telegramId, text));
                     return;
                 }
 
-                if (adminCommandHandler.isWaitingForRevisionReason(telegramId)) {
+                // Обработка причины доработки
+                if (userService.isWaitingForRevisionReason(telegramId)) {
                     execute(adminCommandHandler.handleRevisionReasonInput(chatId, telegramId, text));
                     return;
                 }
 
+                // Обработка обратной связи при завершении
+                if (userService.isWaitingForCompletionFeedback(telegramId)) {
+                    Optional<String> regNumberOpt = userService.consumeWaitingForCompletionFeedback(telegramId);
+                    if (regNumberOpt.isPresent()) {
+                        execute(adminCommandHandler.handleTaskCompleted(chatId, regNumberOpt.get(), telegramId, text)); // Pass feedback text
+                        return;
+                    }
+                }
+
+                // Обработка команд
                 SendMessage response = switch (text) {
                     case "/start" -> adminCommandHandler.handleStartCommand(chatId, username);
                     case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
                     case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
                     case "/pending" -> adminCommandHandler.handlePendingRequests(chatId);
+                    case "/tasks" -> adminCommandHandler.handleTasksCommand(chatId, telegramId);
+                    case "/cancel" -> adminCommandHandler.handleCancelCommand(chatId, telegramId);
                     default -> new SendMessage(chatId.toString(),
                             "❓ Команда не распознана. Используйте /help для списка доступных команд.");
                 };
@@ -206,6 +233,7 @@ public class AdminBot extends TelegramLongPollingBot {
                 return;
             }
 
+            // Обработка загрузки документов
             if (update.hasMessage() && update.getMessage().hasDocument()) {
                 String fileName = update.getMessage().getDocument().getFileName();
                 String fileId = update.getMessage().getDocument().getFileId();

@@ -1,11 +1,9 @@
 package org.info.tg_bot.bot.common;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.bot.handlers.UserCommandHandler;
 import org.info.tg_bot.service.UserService;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
@@ -55,7 +53,7 @@ public class UserBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         try {
-            // 1️⃣ Обработка callback-кнопок
+            // 1️⃣ Handle callback buttons
             if (update.hasCallbackQuery()) {
                 CallbackQuery callback = update.getCallbackQuery();
                 String callbackData = callback.getData();
@@ -66,25 +64,24 @@ public class UserBot extends TelegramLongPollingBot {
                 if (!userService.existsByTelegramId(telegramId)) {
                     SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, callbackData);
                     execute(response);
-                    execute(new AnswerCallbackQuery(callbackQueryId)); // Подтверждаем callback
+                    execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
 
                 SendMessage response = userCommandHandler.handleCallback(chatId, telegramId, callbackData);
                 execute(response);
-                execute(new AnswerCallbackQuery(callbackQueryId)); // Подтверждаем callback
+                execute(new AnswerCallbackQuery(callbackQueryId));
                 return;
             }
 
-            // 2️⃣ Обработка документов (файлов)
+            // 2️⃣ Handle file messages
             if (update.hasMessage() && update.getMessage().hasDocument()) {
                 Long chatId = update.getMessage().getChatId();
                 Long telegramId = update.getMessage().getFrom().getId();
 
                 if (userService.isWaitingForFile(telegramId)) {
                     org.telegram.telegrambots.meta.api.objects.Document tgDocument = update.getMessage().getDocument();
-
-                    SendMessage response = userCommandHandler.handleFileUpload(chatId, telegramId, tgDocument, this);
+                    SendMessage response = userCommandHandler.handleFileUpload(chatId, telegramId, tgDocument);
                     execute(response);
                 } else {
                     execute(new SendMessage(chatId.toString(), "⚠️ Сейчас не ожидается загрузка файла."));
@@ -92,14 +89,14 @@ public class UserBot extends TelegramLongPollingBot {
                 return;
             }
 
-            // 3️⃣ Обработка текстовых сообщений
+            // 3️⃣ Handle text messages
             if (update.hasMessage() && update.getMessage().hasText()) {
                 String text = update.getMessage().getText().trim();
                 Long chatId = update.getMessage().getChatId();
                 Long telegramId = update.getMessage().getFrom().getId();
                 String username = update.getMessage().getFrom().getUserName();
 
-                // Проверка на команды - команды ВСЕГДА имеют приоритет
+                // Commands always have priority
                 if (text.startsWith("/")) {
                     SendMessage response = switch (text) {
                         case "/start" -> {
@@ -107,14 +104,9 @@ public class UserBot extends TelegramLongPollingBot {
                             userService.clearWaitingForFile(telegramId);
                             yield userCommandHandler.handleStartCommand(chatId, telegramId, username);
                         }
-                        case "/help" -> {
-                            userService.clearWaitingForTaskNumber(telegramId);
-                            yield userCommandHandler.handleHelpCommand(chatId);
-                        }
-                        case "/mytasks" -> {
-                            userService.clearWaitingForTaskNumber(telegramId);
-                            yield userCommandHandler.handleMyTasksCommand(chatId, telegramId);
-                        }
+                        case "/help" -> userCommandHandler.handleHelpCommand(chatId);
+                        case "/tasks" -> userCommandHandler.handleMyTasksCommand(chatId, telegramId);
+                        case "/daddy" -> userCommandHandler.handleMyDaddy(chatId, telegramId);
                         default -> new SendMessage(chatId.toString(),
                                 "❓ Команда не распознана. Используйте /help для списка доступных команд.");
                     };
@@ -122,19 +114,35 @@ public class UserBot extends TelegramLongPollingBot {
                     return;
                 }
 
+                // Registration process
+                if (!userService.existsByTelegramId(telegramId)) {
+                    SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, text);
+                    execute(response);
+                    return;
+                }
+
+                // Extension reason input
                 if (userCommandHandler.isWaitingForExtensionReason(telegramId)) {
                     SendMessage response = userCommandHandler.handleExtensionReasonInput(chatId, telegramId, text);
                     execute(response);
                     return;
                 }
 
+                // Waiting for task number
                 if (userService.isWaitingForTaskNumber(telegramId)) {
                     SendMessage response = userCommandHandler.handleTaskSelection(chatId, telegramId, text);
                     execute(response);
                     return;
                 }
 
-                // Если не команда и не ожидается ввод - неизвестная команда
+                // Text result for document
+                if (userService.isWaitingForFile(telegramId)) {
+                    SendMessage response = userCommandHandler.handleTextResultSubmission(chatId, telegramId, text);
+                    execute(response);
+                    return;
+                }
+
+                // Default case
                 SendMessage response = new SendMessage(chatId.toString(),
                         "❓ Команда не распознана. Используйте /help для списка доступных команд.");
                 execute(response);
