@@ -45,8 +45,8 @@ public class ExtensionRequest {
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
 
-    @Column(name = "admin_comment", columnDefinition = "TEXT")
-    private String adminComment;
+    @Column(name = "reviewer_comment", columnDefinition = "TEXT")
+    private String reviewerComment;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

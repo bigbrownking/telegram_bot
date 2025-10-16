@@ -52,20 +52,20 @@ public class ExtensionRequestService {
     }
 
     @Transactional
-    public ExtensionRequest approveRequest(ExtensionRequest request, User admin, String comment) {
+    public ExtensionRequest approveRequest(ExtensionRequest request, User user, String comment) {
         request.setStatus(RequestStatus.APPROVED);
-        request.setReviewedBy(admin);
+        request.setReviewedBy(user);
         request.setReviewedAt(LocalDateTime.now());
-        request.setAdminComment(comment);
+        request.setReviewerComment(comment);
         return extensionRequestRepository.save(request);
     }
 
     @Transactional
-    public ExtensionRequest rejectRequest(ExtensionRequest request, User admin, String comment) {
+    public ExtensionRequest rejectRequest(ExtensionRequest request, User user, String comment) {
         request.setStatus(RequestStatus.REJECTED);
-        request.setReviewedBy(admin);
+        request.setReviewedBy(user);
         request.setReviewedAt(LocalDateTime.now());
-        request.setAdminComment(comment);
+        request.setReviewerComment(comment);
         return extensionRequestRepository.save(request);
     }
 

@@ -61,6 +61,20 @@ public class UserBot extends TelegramLongPollingBot {
                 Long chatId = callback.getMessage().getChatId();
                 Long telegramId = callback.getFrom().getId();
 
+                if (callbackData.startsWith("approve_extend:")) {
+                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
+                    execute(userCommandHandler.handleApproveExtendRequest(chatId, requestId, telegramId));
+                    execute(new AnswerCallbackQuery(callbackQueryId));
+                    return;
+                }
+
+                if (callbackData.startsWith("reject_extend:")) {
+                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
+                    execute(userCommandHandler.handleRejectExtendRequest(chatId, requestId, telegramId));
+                    execute(new AnswerCallbackQuery(callbackQueryId));
+                    return;
+                }
+
                 if (!userService.existsByTelegramId(telegramId)) {
                     SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, callbackData);
                     execute(response);
@@ -96,7 +110,6 @@ public class UserBot extends TelegramLongPollingBot {
                 Long telegramId = update.getMessage().getFrom().getId();
                 String username = update.getMessage().getFrom().getUserName();
 
-                // Commands always have priority
                 if (text.startsWith("/")) {
                     SendMessage response = switch (text) {
                         case "/start" -> {
@@ -106,7 +119,13 @@ public class UserBot extends TelegramLongPollingBot {
                         }
                         case "/help" -> userCommandHandler.handleHelpCommand(chatId);
                         case "/tasks" -> userCommandHandler.handleMyTasksCommand(chatId, telegramId);
-                        case "/daddy" -> userCommandHandler.handleMyDaddy(chatId, telegramId);
+                        case "/pending" -> {
+                            if (userService.isBoss(telegramId)) {
+                                yield userCommandHandler.handlePendingRequests(chatId);
+                            } else {
+                                yield new SendMessage(chatId.toString(), "⚠️ Доступ запрещен. Эта команда доступна только руководителям.");
+                            }
+                        }
                         default -> new SendMessage(chatId.toString(),
                                 "❓ Команда не распознана. Используйте /help для списка доступных команд.");
                     };
@@ -122,9 +141,15 @@ public class UserBot extends TelegramLongPollingBot {
                 }
 
                 // Extension reason input
-                if (userCommandHandler.isWaitingForExtensionReason(telegramId)) {
+                if (userService.isWaitingForExtensionReason(telegramId)) {
                     SendMessage response = userCommandHandler.handleExtensionReasonInput(chatId, telegramId, text);
                     execute(response);
+                    return;
+                }
+
+                // Обработка продления срока
+                if (userService.isWaitingForNewDate(telegramId)) {
+                    execute(userCommandHandler.handleNewExecutionDate(chatId, telegramId, text));
                     return;
                 }
 

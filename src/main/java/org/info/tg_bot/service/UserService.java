@@ -6,7 +6,6 @@ import org.info.tg_bot.model.entity.Branch;
 import org.info.tg_bot.model.entity.Department;
 import org.info.tg_bot.model.entity.Position;
 import org.info.tg_bot.model.entity.User;
-import org.info.tg_bot.model.enums.PositionType;
 import org.info.tg_bot.model.enums.UserRole;
 import org.info.tg_bot.repository.BranchRepository;
 import org.info.tg_bot.repository.DepartmentRepository;
@@ -15,7 +14,6 @@ import org.info.tg_bot.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -38,6 +36,7 @@ public class UserService {
     private final Map<Long, Long> waitingForFile = new HashMap<>();
     private final Map<Long, String> pendingCancellations = new HashMap<>();
     private final Map<Long, Boolean> waitingForCancelDocumentNumber = new HashMap<>();
+    private final Map<Long, Long> waitingForExtensionReason = new HashMap<>(); // Moved here
 
     // === Ожидание действий администратора (из AdminCommandHandler) ===
     private final Map<Long, Long> waitingForNewDate = new HashMap<>(); // Для продления срока
@@ -232,16 +231,11 @@ public class UserService {
         waitingForRevisionReason.remove(adminTelegramId);
     }
 
-    // ======================================================
-    // ✅ Ожидание обратной связи при завершении (из AdminCommandHandler)
-    // ======================================================
-
     public void setWaitingForCompletionFeedback(Long adminTelegramId, String regNumber) {
         waitingForCompletionFeedback.put(adminTelegramId, regNumber);
     }
 
     public boolean isWaitingForCompletionFeedback(Long adminTelegramId) {
-        log.info("KEYS: {}", waitingForCompletionFeedback);
         return waitingForCompletionFeedback.containsKey(adminTelegramId);
     }
 
@@ -253,21 +247,54 @@ public class UserService {
         waitingForCompletionFeedback.remove(adminTelegramId);
     }
 
+    public void setWaitingForExtensionReason(Long telegramId, Long documentId) {
+        waitingForExtensionReason.put(telegramId, documentId);
+    }
+
+    public boolean isWaitingForExtensionReason(Long telegramId) {
+        return waitingForExtensionReason.containsKey(telegramId);
+    }
+
+    public Optional<Long> consumeWaitingForExtensionReason(Long telegramId) {
+        return Optional.ofNullable(waitingForExtensionReason.remove(telegramId));
+    }
+
+    public void clearWaitingForExtensionReason(Long telegramId) {
+        waitingForExtensionReason.remove(telegramId);
+    }
+
     public User findBoss(Long telegramId) {
         Optional<User> optUser = userRepository.findByTelegramId(telegramId);
         if (optUser.isEmpty()) {
+            log.warn("No user found for telegramId: {}", telegramId);
             return null;
         }
         User user = optUser.get();
         String positionName = user.getPosition().getName();
-
+        User boss;
         if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) || "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
-            return userRepository.findByDepartmentIdAndPositionName(user.getDepartment().getId(), "РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА")
+            boss = userRepository.findByDepartmentIdAndPositionName(user.getDepartment().getId(), "РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА")
                     .orElse(null);
         } else {
-            return userRepository.findByBranchIdAndPositionNameIn(user.getBranch().getId(),
+            boss = userRepository.findByBranchIdAndPositionNameIn(user.getBranch().getId(),
                             "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ", "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ_А")
                     .orElse(null);
         }
+        log.info("Boss for user {} (telegramId: {}) is {} (telegramId: {})", user.getFullName(), telegramId,
+                boss != null ? boss.getFullName() : "null", boss != null ? boss.getTelegramId() : "null");
+        return boss;
+    }
+
+    public boolean isBoss(Long telegramId) {
+        Optional<User> optUser = userRepository.findByTelegramId(telegramId);
+        if (optUser.isEmpty()) {
+            log.warn("No user found for telegramId: {}", telegramId);
+            return false;
+        }
+        User user = optUser.get();
+        String positionName = user.getPosition().getName();
+        return positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ") ||
+                positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А") ||
+                positionName.equals("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА");
     }
 }

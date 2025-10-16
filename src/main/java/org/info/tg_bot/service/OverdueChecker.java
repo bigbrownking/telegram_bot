@@ -43,7 +43,7 @@ public class OverdueChecker {
                             daysOverdue,
                             getDaysWord(daysOverdue)
                     );
-                    notificationService.notifyUser(doc.getExecutor().getTelegramId(), message);
+                    notificationService.notifyUser(doc.getExecutor().getTelegramId(), message, null);
                     log.info("Notified user {} about overdue task {} ({} days overdue)",
                             doc.getExecutor().getTelegramId(), doc.getRegNumber(), daysOverdue);
                 }

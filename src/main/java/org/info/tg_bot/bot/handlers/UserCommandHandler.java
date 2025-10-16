@@ -3,23 +3,20 @@ package org.info.tg_bot.bot.handlers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.model.entity.*;
-import org.info.tg_bot.model.enums.BranchType;
-import org.info.tg_bot.model.enums.DepartmentType;
+import org.info.tg_bot.model.enums.CancellationType;
 import org.info.tg_bot.model.enums.DocumentStatus;
-import org.info.tg_bot.model.enums.PositionType;
 import org.info.tg_bot.repository.BranchRepository;
 import org.info.tg_bot.repository.DepartmentRepository;
 import org.info.tg_bot.repository.PositionRepository;
 import org.info.tg_bot.service.*;
 import org.springframework.stereotype.Component;
-import org.telegram.telegrambots.bots.TelegramLongPollingBot;
-import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 
 @Component
@@ -41,8 +38,6 @@ public class UserCommandHandler {
 
     private static final int DEPARTMENTS_PER_PAGE = 5;
     private static final int POSITIONS_PER_PAGE = 5;
-
-    private final Map<Long, Long> waitingForExtensionReason = new HashMap<>();
 
     // ---------- /start ----------
     public SendMessage handleStartCommand(Long chatId, Long telegramId, String username) {
@@ -288,7 +283,7 @@ public class UserCommandHandler {
 
             Document doc = optionalDoc.get();
 
-            waitingForExtensionReason.put(telegramId, doc.getId());
+            userService.setWaitingForExtensionReason(telegramId, doc.getId());
 
             return new SendMessage(chatId.toString(),
                     "💬 Пожалуйста, укажите причину запроса на продление поручения №" + regNumber + ":");
@@ -299,11 +294,16 @@ public class UserCommandHandler {
 
     // ---------- Обработка причины продления ----------
     public SendMessage handleExtensionReasonInput(Long chatId, Long telegramId, String reason) {
-        if (!waitingForExtensionReason.containsKey(telegramId)) {
+        if (!userService.isWaitingForExtensionReason(telegramId)) {
             return new SendMessage(chatId.toString(), "⚠ Нет активного запроса на продление.");
         }
 
-        Long documentId = waitingForExtensionReason.remove(telegramId);
+        Optional<Long> documentIdOpt = userService.consumeWaitingForExtensionReason(telegramId);
+        if (documentIdOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Документ не найден.");
+        }
+
+        Long documentId = documentIdOpt.get();
         Optional<Document> optionalDoc = documentService.findById(documentId);
 
         if (optionalDoc.isEmpty()) {
@@ -318,10 +318,10 @@ public class UserCommandHandler {
         }
 
         User user = optionalUser.get();
-        User admin = doc.getUploadedBy();
+        User boss = userService.findBoss(user.getTelegramId());
 
-        if (admin == null || admin.getTelegramId() == null) {
-            return new SendMessage(chatId.toString(), "⚠ Не удалось определить администратора для отправки запроса.");
+        if (boss == null || boss.getTelegramId() == null) {
+            return new SendMessage(chatId.toString(), "⚠ Не удалось определить начальника для отправки запроса.");
         }
 
         try {
@@ -332,7 +332,6 @@ public class UserCommandHandler {
                     reason
             );
 
-            // Отправляем уведомление администратору с кнопками
             String notificationText = String.format(
                     "📩 <b>Запрос на продление</b>\n\n" +
                             "👤 Исполнитель: %s\n" +
@@ -347,7 +346,6 @@ public class UserCommandHandler {
                     reason
             );
 
-            // Создаем inline кнопки для одобрения/отклонения
             InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(List.of(
                     List.of(
                             InlineKeyboardButton.builder()
@@ -361,7 +359,7 @@ public class UserCommandHandler {
                     )
             ));
 
-            notificationService.notifyAdmin(admin.getTelegramId(), notificationText, keyboard);
+            notificationService.notifyUser(boss.getTelegramId(), notificationText, keyboard);
 
             return new SendMessage(chatId.toString(),
                     "✅ Запрос на продление отправлен администратору. Ожидайте ответа.");
@@ -552,10 +550,8 @@ public class UserCommandHandler {
                                     .build()
                     )
             ));
-            // 📢 Отправляем через NotificationService
             notificationService.notifyAdmin(admin.getTelegramId(), message, keyboard);
 
-            // 🔄 Обновляем статус документа
             doc.setStatus(DocumentStatus.PENDING);
             documentService.save(doc);
 
@@ -573,9 +569,7 @@ public class UserCommandHandler {
     }
 
     // ---------- Проверка состояний ----------
-    public boolean isWaitingForExtensionReason(Long telegramId) {
-        return waitingForExtensionReason.containsKey(telegramId);
-    }
+    // Removed isWaitingForExtensionReason as it's now in UserService
 
     // ---------- /help ----------
     public SendMessage handleHelpCommand(Long chatId) {
@@ -587,55 +581,242 @@ public class UserCommandHandler {
                 """;
         return new SendMessage(chatId.toString(), helpText);
     }
-    public SendMessage handleMyDaddy(Long chatId, Long telegramId) {
-        Optional<User> optionalUser = userService.findByTelegramId(telegramId);
-        if (optionalUser.isEmpty()) {
-            return new SendMessage(chatId.toString(), "❌ Вы не зарегистрированы. Используйте /start.");
+    public SendMessage handlePendingRequests(Long chatId) {
+        List<ExtensionRequest> pending = extensionRequestService.findPendingRequests();
+
+        if (pending.isEmpty()) {
+            return new SendMessage(chatId.toString(), "📭 Нет ожидающих запросов на продление.");
         }
 
-        User user = optionalUser.get();
-        User daddy = userService.findBoss(telegramId);
+        StringBuilder text = new StringBuilder("📋 <b>Запросы на продление:</b>\n\n");
 
-        if (daddy == null) {
-            String noDaddyMessage = String.format(
-                    "👤 Ваш руководитель не найден.\n\n" +
-                            "📝 Ваша должность: %s\n" +
-                            "🏢 Управление: %s\n" +
-                            "📋 Отдел: %s",
-                    escapeMarkdown(user.getPosition().getName()),
-                    escapeMarkdown(user.getBranch().getName()),
-                    escapeMarkdown(user.getDepartment().getName())
-            );
-            return new SendMessage(chatId.toString(), noDaddyMessage);
+        int counter = 1;
+        for (ExtensionRequest req : pending) {
+            text.append(counter++).append(". 📄 Поручение №<b>").append(req.getDocument().getRegNumber()).append("</b>\n")
+                    .append("   👤 Исполнитель: ").append(req.getUser().getFullName()).append("\n")
+                    .append("   🗓 Текущий срок: ").append(req.getDocument().getExecutionDate()).append("\n")
+                    .append("   💬 Причина: ").append(req.getReason() != null ? req.getReason() : "—").append("\n")
+                    .append("   📅 Запрошено: ").append(req.getCreatedAt().toLocalDate()).append("\n\n");
         }
+
+        text.append("\n💡 <i>Нажмите на кнопки ниже для одобрения или отклонения запросов</i>");
+
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        for (ExtensionRequest req : pending) {
+            keyboard.add(List.of(
+                    InlineKeyboardButton.builder()
+                            .text("✅ Одобрить №" + req.getDocument().getRegNumber())
+                            .callbackData("approve_extend:" + req.getId())
+                            .build(),
+                    InlineKeyboardButton.builder()
+                            .text("❌ Отклонить №" + req.getDocument().getRegNumber())
+                            .callbackData("reject_extend:" + req.getId())
+                            .build()
+            ));
+        }
+
+        SendMessage message = new SendMessage(chatId.toString(), text.toString());
+        message.enableHtml(true);
+        message.setReplyMarkup(new InlineKeyboardMarkup(keyboard));
+        return message;
+    }
+    public SendMessage handleApproveExtendRequest(Long chatId, Long requestId, Long adminTelegramId) {
+        Optional<ExtensionRequest> requestOpt = extensionRequestService.findById(requestId);
+        if (requestOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Запрос не найден.");
+        }
+
+        ExtensionRequest request = requestOpt.get();
+
+        userService.setWaitingForNewDate(adminTelegramId, requestId);
 
         String message = String.format(
-                "👤 *Ваш руководитель:*\n\n" +
-                        "📝 Должность: %s\n" +
-                        "🏢 Управление: %s\n" +
-                        "📋 Отдел: %s\n" +
-                        "👤 ФИО: %s\n" +
-                        "📱 Telegram: %s",
-                escapeMarkdown(daddy.getPosition().getName()),
-                escapeMarkdown(daddy.getBranch().getName()),
-                escapeMarkdown(daddy.getDepartment().getName()),
-                escapeMarkdown(daddy.getFullName()),
-                daddy.getTelegramUsername() != null ? "@" + escapeMarkdown(daddy.getTelegramUsername()) : "не указан"
+                "🗓 <b>Одобрение запроса на продление</b>\n\n" +
+                        "📄 Поручение №%s\n" +
+                        "👤 Исполнитель: %s\n" +
+                        "📅 Текущий срок: %s\n" +
+                        "💬 Причина: %s\n\n" +
+                        "Введите новую дату исполнения в формате <code>ГГГГ-ММ-ДД</code>\n" +
+                        "Например: <code>2025-12-31</code>",
+                request.getDocument().getRegNumber(),
+                request.getUser().getFullName(),
+                request.getDocument().getExecutionDate(),
+                request.getReason() != null ? request.getReason() : "—"
         );
 
-        return SendMessage.builder()
-                .chatId(chatId.toString())
-                .text(message)
-                .parseMode("MarkdownV2")
-                .build();
+        SendMessage sendMessage = new SendMessage(chatId.toString(), message);
+        sendMessage.enableHtml(true);
+        return sendMessage;
     }
+    public SendMessage handleRejectExtendRequest(Long chatId, Long requestId, Long adminTelegramId) {
+        Optional<ExtensionRequest> reqOpt = extensionRequestService.findById(requestId);
+        if (reqOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Запрос не найден.");
+        }
 
-    private String escapeMarkdown(String text) {
-        if (text == null) return "";
-        return text.replace("\\", "\\\\")
-                .replace("*", "\\*")
-                .replace("_", "\\_")
-                .replace("`", "\\`")
-                .replace("[", "\\[")
-                .replace("]", "\\]");
-    }}
+        ExtensionRequest request = reqOpt.get();
+        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+
+        if (adminOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
+        }
+
+        User admin = adminOpt.get();
+
+        try {
+            extensionRequestService.rejectRequest(
+                    request,
+                    admin,
+                    "Запрос отклонён начальником"
+            );
+
+            notificationService.notifyUser(
+                    request.getUser().getTelegramId(),
+                    String.format(
+                            "❌ <b>Запрос отклонён</b>\n\n" +
+                                    "📄 Поручение №%s\n" +
+                                    "📝 Описание: %s\n" +
+                                    "🗓 Срок исполнения: %s\n" +
+                                    "👤 Отклонил: %s\n\n" +
+                                    "Пожалуйста, выполните поручение в установленный срок.",
+                            request.getDocument().getRegNumber(),
+                            request.getDocument().getSummary(),
+                            request.getDocument().getExecutionDate(),
+                            admin.getFullName()
+                    ),
+                    null
+            );
+
+            log.info("❌ Extension request rejected: doc={}, admin={}",
+                    request.getDocument().getRegNumber(), admin.getTelegramId());
+
+            return new SendMessage(chatId.toString(),
+                    String.format("🚫 Запрос на продление поручения №%s отклонён.",
+                            request.getDocument().getRegNumber()));
+
+        } catch (Exception e) {
+            log.error("Error rejecting extension request: {}", e.getMessage(), e);
+            return new SendMessage(chatId.toString(),
+                    "⚠ Произошла ошибка при отклонении запроса. Попробуйте позже.");
+        }
+    }
+    public SendMessage handleNewExecutionDate(Long chatId, Long adminTelegramId, String text) {
+        if (!userService.isWaitingForNewDate(adminTelegramId)) {
+            return new SendMessage(chatId.toString(), "⚠ Нет активного запроса на продление. Используйте /pending для просмотра запросов.");
+        }
+
+        Optional<Long> requestIdOpt = userService.consumeWaitingForNewDate(adminTelegramId);
+        if (requestIdOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Запрос не найден.");
+        }
+
+        Long requestId = requestIdOpt.get();
+        Optional<ExtensionRequest> reqOpt = extensionRequestService.findById(requestId);
+
+        if (reqOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Запрос не найден.");
+        }
+
+        ExtensionRequest request = reqOpt.get();
+        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+
+        if (adminOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
+        }
+
+        User admin = adminOpt.get();
+
+        try {
+            LocalDate newDate = LocalDate.parse(text.trim());
+            LocalDate currentDate = request.getDocument().getExecutionDate();
+
+            if (newDate.isBefore(currentDate) || newDate.isEqual(currentDate)) {
+                userService.setWaitingForNewDate(adminTelegramId, requestId);
+                return new SendMessage(chatId.toString(),
+                        String.format("⚠ Новая дата (%s) должна быть позже текущей (%s). Попробуйте снова.",
+                                newDate, currentDate));
+            }
+
+            Document doc = request.getDocument();
+            LocalDate oldDate = doc.getExecutionDate();
+            doc.setExecutionDate(newDate);
+            documentService.save(doc);
+
+            extensionRequestService.approveRequest(
+                    request,
+                    admin,
+                    String.format("Срок продлён с %s до %s", oldDate, newDate)
+            );
+
+            notificationService.notifyUser(
+                    request.getUser().getTelegramId(),
+                    String.format(
+                            "✅ <b>Запрос одобрен!</b>\n\n" +
+                                    "📄 Поручение №%s\n" +
+                                    "🗓 Старый срок: %s\n" +
+                                    "🗓 Новый срок: %s\n" +
+                                    "👤 Одобрил: %s",
+                            doc.getRegNumber(),
+                            oldDate,
+                            newDate,
+                            admin.getFullName()
+                    ),
+                    null
+            );
+
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(List.of(
+                    List.of(
+                            InlineKeyboardButton.builder()
+                                    .text("✅ Одобрить")
+                                    .callbackData("approve_extend:" + request.getId())
+                                    .build(),
+                            InlineKeyboardButton.builder()
+                                    .text("❌ Отклонить")
+                                    .callbackData("reject_extend:" + request.getId())
+                                    .build()
+                    )
+            ));
+            User adminUploader = doc.getUploadedBy();
+            if (adminUploader != null && adminUploader.getTelegramId() != null) {
+                notificationService.notifyAdmin(
+                        adminUploader.getTelegramId(),
+                        String.format(
+                                "🔔 <b>Поручение продлено</b>\n\n" +
+                                        "📄 Поручение №%s\n" +
+                                        "👤 Исполнитель: %s\n" +
+                                        "🗓 Старый срок: %s\n" +
+                                        "🗓 Новый срок: %s\n" +
+                                        "👤 Одобрил: %s\n" +
+                                        "💬 Причина: %s",
+                                doc.getRegNumber(),
+                                request.getUser().getFullName(),
+                                oldDate,
+                                newDate,
+                                admin.getFullName(),
+                                request.getReason() != null ? request.getReason() : "—"
+                        ),
+                        keyboard
+                );
+                log.info("🔔 Notification sent to admin {} about extension of document {}",
+                        adminUploader.getTelegramId(), doc.getRegNumber());
+            } else {
+                log.warn("No admin uploader found for document {}", doc.getRegNumber());
+            }
+
+            log.info("✅ Extension request approved: doc={}, newDate={}, admin={}",
+                    doc.getRegNumber(), newDate, admin.getTelegramId());
+
+            return new SendMessage(chatId.toString(),
+                    String.format("✅ Срок поручения №%s успешно продлён до %s", doc.getRegNumber(), newDate));
+
+        } catch (DateTimeParseException e) {
+            userService.setWaitingForNewDate(adminTelegramId, requestId);
+            return new SendMessage(chatId.toString(),
+                    "⚠ Неверный формат даты. Используйте формат ГГГГ-ММ-ДД (например, 2025-12-31).");
+        } catch (Exception e) {
+            log.error("Error approving extension request: {}", e.getMessage(), e);
+            return new SendMessage(chatId.toString(),
+                    "⚠ Произошла ошибка при одобрении запроса. Попробуйте позже.");
+        }
+    }
+}

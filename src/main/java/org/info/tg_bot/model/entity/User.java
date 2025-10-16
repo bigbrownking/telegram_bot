@@ -4,9 +4,6 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
-import org.info.tg_bot.model.enums.BranchType;
-import org.info.tg_bot.model.enums.DepartmentType;
-import org.info.tg_bot.model.enums.PositionType;
 import org.info.tg_bot.model.enums.UserRole;
 
 import java.time.LocalDateTime;

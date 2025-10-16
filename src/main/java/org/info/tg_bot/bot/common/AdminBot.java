@@ -86,20 +86,6 @@ public class AdminBot extends TelegramLongPollingBot {
                 String callbackData = update.getCallbackQuery().getData();
                 String callbackQueryId = update.getCallbackQuery().getId();
 
-                if (callbackData.startsWith("approve_extend:")) {
-                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
-                    execute(adminCommandHandler.handleApproveExtendRequest(chatId, requestId, telegramId));
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
-                if (callbackData.startsWith("reject_extend:")) {
-                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
-                    execute(adminCommandHandler.handleRejectExtendRequest(chatId, requestId, telegramId));
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
                 if (callbackData.startsWith("close_without_execution:")) {
                     String regNumber = callbackData.split(":")[1];
 
@@ -175,6 +161,7 @@ public class AdminBot extends TelegramLongPollingBot {
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
+
             }
 
             // ======================================================
@@ -193,12 +180,6 @@ public class AdminBot extends TelegramLongPollingBot {
                 // Обработка причины отмены
                 if (userService.isWaitingForCancellationReason(chatId)) {
                     execute(adminCommandHandler.handleCancelReasonInput(chatId, telegramId, text));
-                    return;
-                }
-
-                // Обработка продления срока
-                if (userService.isWaitingForNewDate(telegramId)) {
-                    execute(adminCommandHandler.handleNewExecutionDate(chatId, telegramId, text));
                     return;
                 }
 
@@ -222,7 +203,7 @@ public class AdminBot extends TelegramLongPollingBot {
                     case "/start" -> adminCommandHandler.handleStartCommand(chatId, username);
                     case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
                     case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
-                    case "/pending" -> adminCommandHandler.handlePendingRequests(chatId);
+//                    case "/pending" -> adminCommandHandler.handlePendingRequests(chatId, telegramId);
                     case "/tasks" -> adminCommandHandler.handleTasksCommand(chatId, telegramId);
                     case "/cancel" -> adminCommandHandler.handleCancelCommand(chatId, telegramId);
                     default -> new SendMessage(chatId.toString(),

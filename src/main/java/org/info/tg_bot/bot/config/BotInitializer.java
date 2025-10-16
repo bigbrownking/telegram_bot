@@ -11,7 +11,6 @@ import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.commands.DeleteMyCommands;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
-import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
@@ -32,43 +31,42 @@ public class BotInitializer {
     }
 
     @Bean
-    public ApplicationRunner initializeBotCommands() {
+    public TelegramBotsApi telegramBotsApi() throws TelegramApiException {
+        TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+        botsApi.registerBot(userBot);
+        botsApi.registerBot(adminBot);
+
+        userBot.execute(new DeleteMyCommands());
+        adminBot.execute(new DeleteMyCommands());
+
+        List<BotCommand> userCommands = List.of(
+                new BotCommand("start", "Зарегистрироваться или начать работу"),
+                new BotCommand("tasks", "Посмотреть ваши задачи"),
+                new BotCommand("help", "Показать справку"),
+                new BotCommand("pending", "Запросы на продление (для руководителей)")
+        );
+        userBot.execute(new SetMyCommands(userCommands, null, null));
+
+        List<BotCommand> adminCommands = List.of(
+                new BotCommand("start", "Начать работу администратора"),
+                new BotCommand("upload", "Загрузить Excel файл"),
+                new BotCommand("tasks", "Отправленные документы"),
+                new BotCommand("help", "Показать справку"),
+                new BotCommand("cancel", "Отменить документ")
+        );
+        adminBot.execute(new SetMyCommands(adminCommands, null, "ru"));
+
+        log.info("✅ UserBot and AdminBot registered successfully");
+        return botsApi;
+    }
+
+    @Bean
+    public ApplicationRunner setFileForwarding() {
         return args -> {
-            try {
-                TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
-                botsApi.registerBot(userBot);
-                botsApi.registerBot(adminBot);
-
-                log.info("✅ UserBot and AdminBot registered successfully");
-
                 fileForwardingService.setUserBot(userBot);
                 fileForwardingService.setAdminBot(adminBot);
 
-                userBot.execute(new DeleteMyCommands());
-                adminBot.execute(new DeleteMyCommands());
-
-                List<BotCommand> userCommands = List.of(
-                        new BotCommand("start", "Зарегистрироваться или начать работу"),
-                        new BotCommand("tasks", "Посмотреть ваши задачи"),
-                        new BotCommand("help", "Показать это сообщение")
-                );
-                userBot.execute(new SetMyCommands(userCommands, null, null));
-
-                List<BotCommand> adminCommands = List.of(
-                        new BotCommand("start", "Начать работу администратора"),
-                        new BotCommand("upload", "Загрузить Excel файл"),
-                        new BotCommand("pending", "Запросы на продление"),
-                        new BotCommand("tasks", "Отправленные документы"),
-                        new BotCommand("help", "Показать справку"),
-                        new BotCommand("cancel", "Отменить документ")
-                );
-                adminBot.execute(new SetMyCommands(adminCommands, null, null));
-
-                log.info("✅ UserBot and AdminBot commands initialized");
-            } catch (TelegramApiException e) {
-                log.error("❌ Failed to initialize bot commands: {}", e.getMessage(), e);
-                throw e;
-            }
+                log.info("✅ File forwarding service set.");
         };
     }
 }

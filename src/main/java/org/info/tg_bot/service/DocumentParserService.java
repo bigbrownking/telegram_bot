@@ -126,7 +126,8 @@ public class DocumentParserService {
                                     📅 Срок исполнения: %s
                                     """,
                                     doc.getSummary() != null ? doc.getSummary() : "(без содержания)",
-                                    doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан")
+                                    doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан"),
+                            null
                     );
                 }
             }

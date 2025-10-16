@@ -22,8 +22,19 @@ public class NotificationService {
         this.adminBot = adminBot;
     }
 
-    public void notifyUser(Long telegramId, String text) {
-        sendMessage(userBot, telegramId, text);
+    public void notifyUser(Long telegramId, String text, InlineKeyboardMarkup keyboard) {
+        try {
+            SendMessage message = new SendMessage();
+            message.setChatId(telegramId.toString());
+            message.setText(text);
+            message.setParseMode("HTML");
+            message.setReplyMarkup(keyboard);
+
+            userBot.execute(message);
+            log.info("✅ Notification with keyboard sent to admin {}", telegramId);
+        } catch (TelegramApiException e) {
+            log.error("❌ Ошибка при отправке уведомления пользователю {}: {}", telegramId, e.getMessage());
+        }
     }
 
     public void notifyAdmin(Long adminTelegramId, String messageText, InlineKeyboardMarkup keyboard) {
@@ -38,19 +49,6 @@ public class NotificationService {
             log.info("✅ Notification with keyboard sent to admin {}", adminTelegramId);
         } catch (TelegramApiException e) {
             log.error("❌ Ошибка при отправке уведомления администратору {}: {}", adminTelegramId, e.getMessage());
-        }
-    }
-
-    private void sendMessage(TelegramLongPollingBot bot, Long telegramId, String text) {
-        try {
-            SendMessage message = new SendMessage();
-            message.setChatId(telegramId.toString());
-            message.setText(text);
-            message.setParseMode("HTML");
-
-            bot.execute(message);
-        } catch (Exception e) {
-            log.error("❌ Ошибка отправки уведомления пользователю {}: {}", telegramId, e.getMessage());
         }
     }
 }
