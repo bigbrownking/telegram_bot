@@ -14,6 +14,7 @@ import org.info.tg_bot.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -296,5 +297,36 @@ public class UserService {
         return positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ") ||
                 positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А") ||
                 positionName.equals("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА");
+    }
+
+    public List<User> findSupervisedUsers(Long bossTelegramId) {
+        Optional<User> bossOpt = userRepository.findByTelegramId(bossTelegramId);
+        if (bossOpt.isEmpty()) {
+            log.warn("No boss found for telegramId: {}", bossTelegramId);
+            return List.of();
+        }
+        User boss = bossOpt.get();
+
+        String positionName = boss.getPosition().getName();
+        Long departmentId = boss.getDepartment().getId();
+        Long branchId = boss.getBranch().getId();
+
+        log.info("POSITION: {}, DEPARTMENT: {}, BRANCH: {}", positionName, departmentId, branchId);
+
+        List<User> supervisedUsers;
+        if ("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equals(positionName)) {
+            supervisedUsers = userRepository.findSupervisedUsersByDepartment(departmentId);
+            log.info("Found {} supervised users in department {} for boss {} (telegramId: {})",
+                    supervisedUsers.size(), departmentId, boss.getFullName(), bossTelegramId);
+        } else if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) || "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
+            supervisedUsers = userRepository.findSupervisedUsersByDepartmentAndBranch(departmentId, branchId);
+            log.info("Found {} supervised users in branch {} for boss {} (telegramId: {})",
+                    supervisedUsers.size(), branchId, boss.getFullName(), bossTelegramId);
+        } else {
+            log.warn("Unsupported boss position {} for telegramId: {}", positionName, bossTelegramId);
+            return List.of();
+        }
+
+        return supervisedUsers;
     }
 }

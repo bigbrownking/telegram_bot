@@ -1,5 +1,6 @@
 package org.info.tg_bot.bot.config;
 
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.bot.common.AdminBot;
 import org.info.tg_bot.bot.common.UserBot;
@@ -19,6 +20,7 @@ import java.util.List;
 @Configuration
 @Slf4j
 public class BotInitializer {
+
 
     private final UserBot userBot;
     private final AdminBot adminBot;

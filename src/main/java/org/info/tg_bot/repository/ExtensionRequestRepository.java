@@ -5,6 +5,7 @@ import org.info.tg_bot.model.entity.ExtensionRequest;
 import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.model.enums.RequestStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -22,4 +23,6 @@ public interface ExtensionRequestRepository extends JpaRepository<ExtensionReque
     Optional<ExtensionRequest> findTopByDocumentOrderByCreatedAtDesc(Document document);
 
     boolean existsByDocumentAndUserAndStatus(Document document, User user, RequestStatus status);
+    @Query("SELECT er FROM ExtensionRequest er WHERE er.user IN :users AND er.status = :status")
+    List<ExtensionRequest> findByUserInAndStatus(List<User> users, RequestStatus status);
 }

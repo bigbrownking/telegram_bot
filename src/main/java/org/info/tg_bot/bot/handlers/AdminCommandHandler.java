@@ -2,13 +2,12 @@ package org.info.tg_bot.bot.handlers;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.info.tg_bot.model.entity.Document;
-import org.info.tg_bot.model.entity.ExecutionResult;
-import org.info.tg_bot.model.entity.ExtensionRequest;
-import org.info.tg_bot.model.entity.User;
+import org.info.tg_bot.model.entity.*;
+import org.info.tg_bot.model.enums.ActionCategory;
 import org.info.tg_bot.model.enums.CancellationType;
 import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.service.*;
+import org.info.tg_bot.service.AuditLogService;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
@@ -36,15 +35,34 @@ public class AdminCommandHandler {
     private final NotificationService notificationService;
     private final ExecutionResultService executionResultService;
     private final DocumentCancellationService documentCancellationService;
+    private final AuditLogService auditLogService;
 
     // --- Commands ---
-    public SendMessage handleStartCommand(Long chatId, String username) {
+    public SendMessage handleStartCommand(Long chatId, Long telegramId, String username) {
         String msg = String.format(
                 "👋 Здравствуйте, %s!\n\n" +
                         "Вы авторизованы как администратор. " +
                         "Используйте /upload для загрузки Excel-файлов, /pending для просмотра запросов на продление, или /cancel для отмены документа.",
                 username != null ? username : "администратор"
         );
+        if (userService.existsByTelegramId(telegramId)) {
+            User user = userService.findByTelegramId(telegramId).orElseThrow();
+            auditLogService.logAction(
+                    user,
+                    "LOGIN",
+                    ActionCategory.AUTH,
+                    "Admin",
+                    user.getId(),
+                    "User logged in",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    user.getTelegramUsername(),
+                    true,
+                    null,
+                    null
+            );
+        }
         return new SendMessage(chatId.toString(), msg);
     }
 
@@ -128,6 +146,21 @@ public class AdminCommandHandler {
 
             try (InputStream inputStream = bot.downloadFileAsStream(tgFile.getFilePath())) {
                 var documents = documentParserService.parse(inputStream, user);
+                auditLogService.logAction(
+                        user,
+                        "UPLOAD_EXCEL",
+                        ActionCategory.DOCUMENT,
+                        "Document",
+                        null,
+                        "Uploaded Excel file with " + documents.size() + " documents",
+                        null,
+                        null,
+                        "Telegram Bot",
+                        user.getTelegramUsername(),
+                        true,
+                        null,
+                        Map.of("fileName", fileName, "documentCount", documents.size())
+                        );
                 return new SendMessage(chatId.toString(),
                         String.format("✅ Файл \"%s\" обработан. Загружено %d документов.", fileName, documents.size()));
             }
@@ -137,7 +170,6 @@ public class AdminCommandHandler {
             return new SendMessage(chatId.toString(), "⚠ Ошибка при обработке файла. Попробуйте снова.");
         }
     }
-
 
     public SendMessage handleCloseWithoutExecution(Long chatId, String regNumber, Long adminTelegramId,
                                                    CancellationType type, String reason) {
@@ -166,6 +198,22 @@ public class AdminCommandHandler {
                     reason,
                     type,
                     oldStatus
+            );
+
+            auditLogService.logAction(
+                    admin,
+                    "CANCEL_DOCUMENT",
+                    ActionCategory.DOCUMENT,
+                    "Document",
+                    document.getId(),
+                    "Document cancelled without execution",
+                    Map.of("status", oldStatus.name()),
+                    Map.of("status", DocumentStatus.CANCELLED.name(), "reason", reason),
+                    "Telegram Bot",
+                    admin.getTelegramUsername(),
+                    true,
+                    null,
+                    null
             );
 
             notificationService.notifyUser(
@@ -226,6 +274,7 @@ public class AdminCommandHandler {
             return message;
         } else {
             try {
+                DocumentStatus oldStatus = document.getStatus();
                 document.setStatus(DocumentStatus.COMPLETED);
                 documentService.save(document);
 
@@ -244,6 +293,22 @@ public class AdminCommandHandler {
                         .adminFeedback(feedback.trim())
                         .build();
                 executionResultService.save(completionResult);
+
+                auditLogService.logAction(
+                        admin,
+                        "MARK_COMPLETED",
+                        ActionCategory.RESULT,
+                        "Document",
+                        document.getId(),
+                        "Document marked as completed",
+                        Map.of("status", oldStatus.name()),
+                        Map.of("status", DocumentStatus.COMPLETED.name(), "feedback", feedback),
+                        "Telegram Bot",
+                        admin.getTelegramUsername(),
+                        true,
+                        null,
+                        null
+                );
 
                 notificationService.notifyUser(
                         executor.getTelegramId(),
@@ -286,7 +351,6 @@ public class AdminCommandHandler {
         }
 
         Document document = documentOpt.get();
-
         userService.setWaitingForRevisionReason(adminTelegramId, regNumber);
 
         String message = String.format(
@@ -329,8 +393,25 @@ public class AdminCommandHandler {
         User executor = document.getExecutor();
 
         try {
+            DocumentStatus oldStatus = document.getStatus();
             document.setStatus(DocumentStatus.REVISION);
             documentService.save(document);
+
+            auditLogService.logAction(
+                    admin,
+                    "SEND_FOR_REVISION",
+                    ActionCategory.RESULT,
+                    "Document",
+                    document.getId(),
+                    "Document sent for revision",
+                    Map.of("status", oldStatus.name()),
+                    Map.of("status", DocumentStatus.REVISION.name(), "reason", reason),
+                    "Telegram Bot",
+                    admin.getTelegramUsername(),
+                    true,
+                    null,
+                    null
+            );
 
             notificationService.notifyUser(
                     executor.getTelegramId(),
@@ -509,6 +590,7 @@ public class AdminCommandHandler {
         message.setReplyMarkup(new InlineKeyboardMarkup(keyboard));
         return message;
     }
+
     public SendMessage handleApproveExtendRequest(Long chatId, Long requestId, Long adminTelegramId) {
         Optional<ExtensionRequest> requestOpt = extensionRequestService.findById(requestId);
         if (requestOpt.isEmpty()) {
@@ -554,6 +636,22 @@ public class AdminCommandHandler {
         User admin = adminOpt.get();
 
         try {
+            auditLogService.logAction(
+                    admin,
+                    "REJECT_EXTENSION",
+                    ActionCategory.EXTENSION,
+                    "ExtensionRequest",
+                    request.getId(),
+                    "Extension request rejected",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    admin.getTelegramUsername(),
+                    true,
+                    null,
+                    Map.of("documentId", request.getDocument().getId(), "reason", "Request rejected by admin")
+                    );
+
             extensionRequestService.rejectRequest(
                     request,
                     admin,
@@ -573,7 +671,8 @@ public class AdminCommandHandler {
                             request.getDocument().getSummary(),
                             request.getDocument().getExecutionDate(),
                             admin.getFullName()
-                    ), null
+                    ),
+                    null
             );
 
             log.info("❌ Extension request rejected: doc={}, admin={}",
@@ -589,6 +688,7 @@ public class AdminCommandHandler {
                     "⚠ Произошла ошибка при отклонении запроса. Попробуйте позже.");
         }
     }
+
     public SendMessage handleNewExecutionDate(Long chatId, Long adminTelegramId, String text) {
         if (!userService.isWaitingForNewDate(adminTelegramId)) {
             return new SendMessage(chatId.toString(), "⚠ Нет активного запроса на продление. Используйте /pending для просмотра запросов.");
@@ -631,26 +731,66 @@ public class AdminCommandHandler {
             doc.setExecutionDate(newDate);
             documentService.save(doc);
 
+            auditLogService.logAction(
+                    admin,
+                    "APPROVE_EXTENSION",
+                    ActionCategory.EXTENSION,
+                    "ExtensionRequest",
+                    request.getId(),
+                    "Extension request approved",
+                    Map.of("oldDate", oldDate.toString()),
+                    Map.of("newDate", newDate.toString(), "reason", request.getReason()),
+                    "Telegram Bot",
+                    admin.getTelegramUsername(),
+                    true,
+                    null,
+                    null
+            );
+
             extensionRequestService.approveRequest(
                     request,
                     admin,
                     String.format("Срок продлён с %s до %s", oldDate, newDate)
             );
 
-            notificationService.notifyUser(
-                    request.getUser().getTelegramId(),
-                    String.format(
-                            "✅ <b>Запрос одобрен!</b>\n\n" +
-                                    "📄 Поручение №%s\n" +
-                                    "🗓 Старый срок: %s\n" +
-                                    "🗓 Новый срок: %s\n" +
-                                    "👤 Одобрил: %s",
-                            doc.getRegNumber(),
-                            oldDate,
-                            newDate,
-                            admin.getFullName()
-                    ), null
-            );
+            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(List.of(
+                    List.of(
+                            InlineKeyboardButton.builder()
+                                    .text("✅ Одобрить")
+                                    .callbackData("approve_extend:" + request.getId())
+                                    .build(),
+                            InlineKeyboardButton.builder()
+                                    .text("❌ Отклонить")
+                                    .callbackData("reject_extend:" + request.getId())
+                                    .build()
+                    )
+            ));
+            User adminUploader = doc.getUploadedBy();
+            if (adminUploader != null && adminUploader.getTelegramId() != null) {
+                notificationService.notifyAdmin(
+                        adminUploader.getTelegramId(),
+                        String.format(
+                                "🔔 <b>Поручение продлено</b>\n\n" +
+                                        "📄 Поручение №%s\n" +
+                                        "👤 Исполнитель: %s\n" +
+                                        "🗓 Старый срок: %s\n" +
+                                        "🗓 Новый срок: %s\n" +
+                                        "👤 Одобрил: %s\n" +
+                                        "💬 Причина: %s",
+                                doc.getRegNumber(),
+                                request.getUser().getFullName(),
+                                oldDate,
+                                newDate,
+                                admin.getFullName(),
+                                request.getReason() != null ? request.getReason() : "—"
+                        ),
+                        keyboard
+                );
+                log.info("🔔 Notification sent to admin {} about extension of document {}",
+                        adminUploader.getTelegramId(), doc.getRegNumber());
+            } else {
+                log.warn("No admin uploader found for document {}", doc.getRegNumber());
+            }
 
             log.info("✅ Extension request approved: doc={}, newDate={}, admin={}",
                     doc.getRegNumber(), newDate, admin.getTelegramId());

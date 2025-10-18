@@ -121,7 +121,7 @@ public class UserBot extends TelegramLongPollingBot {
                         case "/tasks" -> userCommandHandler.handleMyTasksCommand(chatId, telegramId);
                         case "/pending" -> {
                             if (userService.isBoss(telegramId)) {
-                                yield userCommandHandler.handlePendingRequests(chatId);
+                                yield userCommandHandler.handlePendingRequests(chatId, telegramId);
                             } else {
                                 yield new SendMessage(chatId.toString(), "⚠️ Доступ запрещен. Эта команда доступна только руководителям.");
                             }

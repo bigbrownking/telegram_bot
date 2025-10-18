@@ -77,4 +77,13 @@ public class ExtensionRequestService {
     public List<ExtensionRequest> findByUser(User user) {
         return extensionRequestRepository.findByUser(user);
     }
+
+    @Transactional(readOnly = true)
+    public List<ExtensionRequest> findPendingRequestsByUsers(List<User> users) {
+        if (users == null || users.isEmpty()) {
+            return List.of();
+        }
+        log.info("Fetching pending requests for {} users", users.size());
+        return extensionRequestRepository.findByUserInAndStatus(users, RequestStatus.PENDING);
+    }
 }

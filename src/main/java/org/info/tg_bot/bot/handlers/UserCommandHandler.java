@@ -3,12 +3,14 @@ package org.info.tg_bot.bot.handlers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.model.entity.*;
+import org.info.tg_bot.model.enums.ActionCategory;
 import org.info.tg_bot.model.enums.CancellationType;
 import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.repository.BranchRepository;
 import org.info.tg_bot.repository.DepartmentRepository;
 import org.info.tg_bot.repository.PositionRepository;
 import org.info.tg_bot.service.*;
+import org.info.tg_bot.service.AuditLogService;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -29,12 +31,10 @@ public class UserCommandHandler {
     private final NotificationService notificationService;
     private final ExtensionRequestService extensionRequestService;
     private final FileForwardingService fileForwardingService;
-    private final ExecutionResultService executionResultService;
-
+    private final AuditLogService auditLogService;
     private final DepartmentRepository departmentRepository;
     private final PositionRepository positionRepository;
     private final BranchRepository branchRepository;
-
 
     private static final int DEPARTMENTS_PER_PAGE = 5;
     private static final int POSITIONS_PER_PAGE = 5;
@@ -43,6 +43,21 @@ public class UserCommandHandler {
     public SendMessage handleStartCommand(Long chatId, Long telegramId, String username) {
         if (userService.existsByTelegramId(telegramId)) {
             User user = userService.findByTelegramId(telegramId).orElseThrow();
+            auditLogService.logAction(
+                    user,
+                    "LOGIN",
+                    ActionCategory.AUTH,
+                    "User",
+                    user.getId(),
+                    "User logged in",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    user.getTelegramUsername(),
+                    true,
+                    null,
+                    null
+            );
             return new SendMessage(chatId.toString(),
                     String.format("С возвращением, %s!", user.getName()));
         }
@@ -65,7 +80,6 @@ public class UserCommandHandler {
         data = data == null ? "" : data.strip();
 
         switch (currentStep) {
-
             case "DEPARTMENT" -> {
                 if (data.startsWith("dept:")) {
                     Long id = Long.parseLong(data.substring(5));
@@ -83,7 +97,6 @@ public class UserCommandHandler {
                     return createBranchInlineKeyboard(chatId, 0);
                 }
             }
-
             case "BRANCH" -> {
                 if (data.startsWith("branch:")) {
                     Long id = Long.parseLong(data.substring(7));
@@ -101,7 +114,6 @@ public class UserCommandHandler {
                     return createPositionInlineKeyboard(chatId, 0);
                 }
             }
-
             case "POSITION" -> {
                 if (data.startsWith("pos:")) {
                     Long id = Long.parseLong(data.substring(4));
@@ -119,28 +131,38 @@ public class UserCommandHandler {
                     return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя:");
                 }
             }
-
             case "NAME" -> {
                 userService.updateRegistrationName(telegramId, data);
                 return new SendMessage(chatId.toString(), "Пожалуйста, введите вашу фамилию:");
             }
-
             case "SURNAME" -> {
                 userService.updateRegistrationSurname(telegramId, data);
                 return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше отчество:");
             }
-
             case "FATHERNAME" -> {
                 userService.completeRegistration(telegramId, data);
                 User user = userService.findByTelegramId(telegramId).orElseThrow();
+                auditLogService.logAction(
+                        user,
+                        "REGISTER_USER",
+                        ActionCategory.USER,
+                        "User",
+                        user.getId(),
+                        "User registration completed",
+                        null,
+                        null,
+                        "Telegram Bot",
+                        user.getTelegramUsername(),
+                        true,
+                        null,
+                        Map.of("username", user.getTelegramUsername(), "fullName", user.getFullName())
+                        );
                 return new SendMessage(chatId.toString(),
                         String.format("✅ Регистрация завершена! Добро пожаловать, %s!", user.getFullName()));
             }
-
             default -> {
                 return new SendMessage(chatId.toString(), "Ошибка регистрации. Используйте /start для начала.");
             }
-
         }
     }
 
@@ -183,7 +205,6 @@ public class UserCommandHandler {
         return message;
     }
 
-
     private SendMessage createPositionInlineKeyboard(Long chatId, int page) {
         List<Position> positions = positionRepository.findAll();
         int start = page * POSITIONS_PER_PAGE;
@@ -225,7 +246,6 @@ public class UserCommandHandler {
         }
 
         User user = optionalUser.get();
-
         List<Document> activeDocuments = documentService.findActiveDocumentsByExecutor(user);
 
         if (activeDocuments.isEmpty()) {
@@ -241,11 +261,25 @@ public class UserCommandHandler {
                     doc.getSummary(),
                     doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан",
                     doc.getStatus().getDisplayName()));
-
         }
         sb.append("\nВведите номер поручения, чтобы просмотреть детали.");
 
         userService.setWaitingForTaskNumber(telegramId, true);
+        auditLogService.logAction(
+                user,
+                "VIEW_TASKS",
+                ActionCategory.DOCUMENT,
+                "Document",
+                null,
+                "User viewed their tasks",
+                null,
+                null,
+                "Telegram Bot",
+                user.getTelegramUsername(),
+                true,
+                null,
+                Map.of("taskCount", activeDocuments.size())
+                );
 
         SendMessage message = new SendMessage(chatId.toString(), sb.toString());
         message.setParseMode("Markdown");
@@ -257,6 +291,12 @@ public class UserCommandHandler {
         if (userService.isWaitingForTaskNumber(telegramId)) {
             userService.clearWaitingForTaskNumber(telegramId);
         }
+        Optional<User> optionalUser = userService.findByTelegramId(telegramId);
+        if (optionalUser.isEmpty()) {
+            return new SendMessage(chatId.toString(), "❌ Вы не зарегистрированы. Используйте /start.");
+        }
+        User user = optionalUser.get();
+
         // --- Отправка результата ---
         if (callbackData.startsWith("send_result:")) {
             String regNumber = callbackData.substring("send_result:".length());
@@ -268,6 +308,21 @@ public class UserCommandHandler {
 
             Document doc = optionalDoc.get();
             userService.setWaitingForFile(telegramId, doc.getId());
+            auditLogService.logAction(
+                    user,
+                    "REQUEST_SUBMIT_RESULT",
+                    ActionCategory.RESULT,
+                    "Document",
+                    doc.getId(),
+                    "User requested to submit result",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    user.getTelegramUsername(),
+                    true,
+                    null,
+                    null
+            );
 
             return new SendMessage(chatId.toString(),
                     "📤 Пожалуйста, отправьте файл/текст для поручения №" + regNumber + ".");
@@ -282,8 +337,22 @@ public class UserCommandHandler {
             }
 
             Document doc = optionalDoc.get();
-
             userService.setWaitingForExtensionReason(telegramId, doc.getId());
+            auditLogService.logAction(
+                    user,
+                    "REQUEST_EXTENSION",
+                    ActionCategory.EXTENSION,
+                    "Document",
+                    doc.getId(),
+                    "User requested extension",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    user.getTelegramUsername(),
+                    true,
+                    null,
+                    null
+            );
 
             return new SendMessage(chatId.toString(),
                     "💬 Пожалуйста, укажите причину запроса на продление поручения №" + regNumber + ":");
@@ -330,6 +399,22 @@ public class UserCommandHandler {
                     user,
                     LocalDateTime.now(),
                     reason
+            );
+
+            auditLogService.logAction(
+                    user,
+                    "CREATE_EXTENSION_REQUEST",
+                    ActionCategory.EXTENSION,
+                    "ExtensionRequest",
+                    request.getId(),
+                    "Extension request created",
+                    null,
+                    Map.of("documentId", doc.getId(), "reason", reason),
+                    "Telegram Bot",
+                    user.getTelegramUsername(),
+                    true,
+                    null,
+                    null
             );
 
             String notificationText = String.format(
@@ -480,6 +565,22 @@ public class UserCommandHandler {
                     keyboard
             );
 
+            auditLogService.logAction(
+                    executor,
+                    "SUBMIT_FILE_RESULT",
+                    ActionCategory.RESULT,
+                    "Document",
+                    doc.getId(),
+                    "User submitted file result",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    executor.getTelegramUsername(),
+                    true,
+                    null,
+                    Map.of("fileName", file.getFileName())
+                    );
+
             userService.clearWaitingForFile(telegramId);
             doc.setStatus(DocumentStatus.PENDING);
             documentService.save(doc);
@@ -552,6 +653,22 @@ public class UserCommandHandler {
             ));
             notificationService.notifyAdmin(admin.getTelegramId(), message, keyboard);
 
+            auditLogService.logAction(
+                    executor,
+                    "SUBMIT_TEXT_RESULT",
+                    ActionCategory.RESULT,
+                    "Document",
+                    doc.getId(),
+                    "User submitted text result",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    executor.getTelegramUsername(),
+                    true,
+                    null,
+                    Map.of("resultText", resultText)
+                    );
+
             doc.setStatus(DocumentStatus.PENDING);
             documentService.save(doc);
 
@@ -581,14 +698,22 @@ public class UserCommandHandler {
                 """;
         return new SendMessage(chatId.toString(), helpText);
     }
-    public SendMessage handlePendingRequests(Long chatId) {
-        List<ExtensionRequest> pending = extensionRequestService.findPendingRequests();
 
-        if (pending.isEmpty()) {
-            return new SendMessage(chatId.toString(), "📭 Нет ожидающих запросов на продление.");
+    public SendMessage handlePendingRequests(Long chatId, Long bossTelegramId) {
+        Optional<User> bossOpt = userService.findByTelegramId(bossTelegramId);
+        if (bossOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Руководитель не найден.");
         }
 
-        StringBuilder text = new StringBuilder("📋 <b>Запросы на продление:</b>\n\n");
+        User boss = bossOpt.get();
+        List<User> supervisedUsers = userService.findSupervisedUsers(bossTelegramId);
+        List<ExtensionRequest> pending = extensionRequestService.findPendingRequestsByUsers(supervisedUsers);
+
+        if (pending.isEmpty()) {
+            return new SendMessage(chatId.toString(), "📭 Нет ожидающих запросов на продление от ваших подчинённых.");
+        }
+
+        StringBuilder text = new StringBuilder("📋 <b>Ваши запросы на продление:</b>\n\n");
 
         int counter = 1;
         for (ExtensionRequest req : pending) {
@@ -620,6 +745,7 @@ public class UserCommandHandler {
         message.setReplyMarkup(new InlineKeyboardMarkup(keyboard));
         return message;
     }
+
     public SendMessage handleApproveExtendRequest(Long chatId, Long requestId, Long adminTelegramId) {
         Optional<ExtensionRequest> requestOpt = extensionRequestService.findById(requestId);
         if (requestOpt.isEmpty()) {
@@ -648,6 +774,7 @@ public class UserCommandHandler {
         sendMessage.enableHtml(true);
         return sendMessage;
     }
+
     public SendMessage handleRejectExtendRequest(Long chatId, Long requestId, Long adminTelegramId) {
         Optional<ExtensionRequest> reqOpt = extensionRequestService.findById(requestId);
         if (reqOpt.isEmpty()) {
@@ -664,6 +791,22 @@ public class UserCommandHandler {
         User admin = adminOpt.get();
 
         try {
+            auditLogService.logAction(
+                    admin,
+                    "REJECT_EXTENSION",
+                    ActionCategory.EXTENSION,
+                    "ExtensionRequest",
+                    request.getId(),
+                    "Extension request rejected",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    admin.getTelegramUsername(),
+                    true,
+                    null,
+                    Map.of("documentId", request.getDocument().getId(), "reason", "Request rejected by boss")
+                    );
+
             extensionRequestService.rejectRequest(
                     request,
                     admin,
@@ -700,6 +843,7 @@ public class UserCommandHandler {
                     "⚠ Произошла ошибка при отклонении запроса. Попробуйте позже.");
         }
     }
+
     public SendMessage handleNewExecutionDate(Long chatId, Long adminTelegramId, String text) {
         if (!userService.isWaitingForNewDate(adminTelegramId)) {
             return new SendMessage(chatId.toString(), "⚠ Нет активного запроса на продление. Используйте /pending для просмотра запросов.");
@@ -741,6 +885,22 @@ public class UserCommandHandler {
             LocalDate oldDate = doc.getExecutionDate();
             doc.setExecutionDate(newDate);
             documentService.save(doc);
+
+            auditLogService.logAction(
+                    admin,
+                    "APPROVE_EXTENSION",
+                    ActionCategory.EXTENSION,
+                    "ExtensionRequest",
+                    request.getId(),
+                    "Extension request approved",
+                    Map.of("oldDate", oldDate.toString()),
+                    Map.of("newDate", newDate.toString(), "reason", request.getReason()),
+                    "Telegram Bot",
+                    admin.getTelegramUsername(),
+                    true,
+                    null,
+                    null
+            );
 
             extensionRequestService.approveRequest(
                     request,

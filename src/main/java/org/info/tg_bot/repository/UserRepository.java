@@ -18,4 +18,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByDepartmentIdAndPositionName(Long depId, String positionName);
     Optional<User> findByBranchIdAndPositionNameIn(Long branchId, String... positionNames);
     boolean existsByTelegramId(Long telegramId);
+    @Query("SELECT u FROM User u WHERE (u.department.id = :departmentId OR u.branch.id = :branchId) " +
+            "AND u.position.name NOT IN ('РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ', 'РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А', 'РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА') " +
+            "AND u.isActive = true")
+    List<User> findSupervisedUsersByDepartmentAndBranch(Long departmentId, Long branchId);
+
+    @Query("SELECT u FROM User u WHERE u.department.id = :departmentId " +
+            "AND u.position.name NOT IN ('РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА') " +
+            "AND u.isActive = true")
+    List<User> findSupervisedUsersByDepartment(Long departmentId);
 }

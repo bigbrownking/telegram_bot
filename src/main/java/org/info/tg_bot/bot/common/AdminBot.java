@@ -220,10 +220,10 @@ public class AdminBot extends TelegramLongPollingBot {
 
                 // Обработка команд
                 SendMessage response = switch (text) {
-                    case "/start" -> adminCommandHandler.handleStartCommand(chatId, username);
+                    case "/start" -> adminCommandHandler.handleStartCommand(chatId, telegramId, username);
                     case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
                     case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
-//                    case "/pending" -> adminCommandHandler.handlePendingRequests(chatId, telegramId);
+         //           case "/pending" -> adminCommandHandler.handlePendingRequests(chatId, telegramId);
                     case "/tasks" -> adminCommandHandler.handleTasksCommand(chatId, telegramId);
                     case "/cancel" -> adminCommandHandler.handleCancelCommand(chatId, telegramId);
                     default -> new SendMessage(chatId.toString(),
