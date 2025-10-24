@@ -25,4 +25,14 @@ public interface ExtensionRequestRepository extends JpaRepository<ExtensionReque
     boolean existsByDocumentAndUserAndStatus(Document document, User user, RequestStatus status);
     @Query("SELECT er FROM ExtensionRequest er WHERE er.user IN :users AND er.status = :status")
     List<ExtensionRequest> findByUserInAndStatus(List<User> users, RequestStatus status);
+
+    @Query("""
+       SELECT er FROM ExtensionRequest er
+       WHERE er.document.uploadedBy = :admin
+         AND er.status = 'PENDING'
+         AND er.reviewedBy IS NOT NULL
+       ORDER BY er.createdAt DESC
+       """)
+    List<ExtensionRequest> findPendingByAdmin(User admin);
+
 }

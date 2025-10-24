@@ -3,17 +3,26 @@ package org.info.tg_bot.scheduler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.model.entity.Document;
+import org.info.tg_bot.model.entity.ExecutionResult;
+import org.info.tg_bot.model.entity.TempDocument;
 import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.model.enums.ActionCategory;
+import org.info.tg_bot.repository.DocumentRepository;
+import org.info.tg_bot.repository.TempDocumentRepository;
 import org.info.tg_bot.service.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -23,12 +32,15 @@ public class Scheduler {
     private final DocumentService documentService;
     private final UserService userService;
     private final NotificationService notificationService;
-    private final AuditLogService auditLogService; // ✅ Added
+    private final TempDocumentRepository tempDocumentRepository;
+    private final DocumentRepository documentRepository;
+    private final AuditLogService auditLogService;
+    private final ExecutionResultService executionResultService;
 
     @Scheduled(cron = "${scheduler.overdue-check.cron}")
     public void checkOverdueDocuments() {
         LocalDate today = LocalDate.now();
-        List<Document> activeDocuments = documentService.findActiveDocumentsNotCompletedOrCancelled(today);
+        List<Document> activeDocuments = documentService.findOverduedDocumentsNotCompletedOrCancelled(today);
 
         for (Document doc : activeDocuments) {
             if (doc.getExecutionDate() != null && doc.getExecutionDate().isBefore(today)) {
@@ -36,6 +48,7 @@ public class Scheduler {
                 doc.setStatus(DocumentStatus.OVERDUE);
                 documentService.save(doc);
 
+                log.info("OVERUDEDEE");
                 User responsible = doc.getExecutor();
                 if (responsible != null && responsible.getTelegramId() != null) {
                     String message = String.format(
@@ -54,6 +67,8 @@ public class Scheduler {
                     notificationService.notifyUser(responsible.getTelegramId(), message, null);
                     User boss = userService.findBoss(responsible.getTelegramId());
                     notificationService.notifyUser(boss.getTelegramId(), message, null);
+                    User vc = userService.getVC();
+                    notificationService.notifyUser(vc.getTelegramId(), message,null);
 
                     auditLogService.logAction(
                             responsible,
@@ -80,21 +95,26 @@ public class Scheduler {
 
     @Scheduled(cron = "${scheduler.upcoming-check.cron}")
     public void checkUpcomingDeadlines() {
+
         LocalDate today = LocalDate.now();
         List<Document> activeDocuments = documentService.findActiveDocumentsNotCompletedOrCancelled(today);
 
         for (Document doc : activeDocuments) {
             if (doc.getExecutionDate() != null) {
                 long daysUntilDue = ChronoUnit.DAYS.between(today, doc.getExecutionDate());
-                if (daysUntilDue == 1 || daysUntilDue == 3 || daysUntilDue == 5) {
+                log.info("DAYS {}", daysUntilDue);
+                if (daysUntilDue == 1 || daysUntilDue == 3 || daysUntilDue == 5 || daysUntilDue == 0) {
                     User responsible = doc.getExecutor();
                     if (responsible != null && responsible.getTelegramId() != null) {
                         String message = String.format(
-                                "⏰ <b>Напоминание о поручении</b>\n\n" +
-                                        "📄 Поручение №%s\n" +
-                                        "📝 Описание: %s\n" +
-                                        "🗓 Срок исполнения: %s\n" +
-                                        "⏳ Осталось %d %s\n",
+                                """
+                                        ⏰ <b>Напоминание о поручении</b>
+
+                                        📄 Поручение №%s
+                                        📝 Описание: %s
+                                        🗓 Срок исполнения: %s
+                                        ⏳ Осталось %d %s
+                                        """,
                                 doc.getRegNumber(),
                                 doc.getSummary(),
                                 doc.getExecutionDate(),
@@ -102,9 +122,8 @@ public class Scheduler {
                                 getDaysWord(daysUntilDue)
                         );
 
+                        log.info("notttttt");
                         notificationService.notifyUser(responsible.getTelegramId(), message, null);
-                        User boss = userService.findBoss(responsible.getTelegramId());
-                        notificationService.notifyUser(boss.getTelegramId(), message, null);
 
                         auditLogService.logAction(
                                 responsible,
@@ -122,11 +141,54 @@ public class Scheduler {
                                 Map.of("daysUntilDue", daysUntilDue)
                         );
 
-                        log.info("Notified user {} and boss {} about upcoming deadline for task {} ({} days remaining)",
-                                responsible.getTelegramId(), boss.getTelegramId(), doc.getRegNumber(), daysUntilDue);
+                        log.info("Notified user {} about upcoming deadline for task {} ({} days remaining)",
+                                responsible.getTelegramId(), doc.getRegNumber(), daysUntilDue);
                     }
                 }
             }
+        }
+    }
+    @Scheduled(cron = "${scheduler.temp-cleaner.cron}")
+    @Transactional
+    public void clearTempDocuments() {
+        long countBefore = tempDocumentRepository.count();
+
+        if (countBefore > 0) {
+            tempDocumentRepository.deleteAll();
+            log.info("✅ Cleared {} temp documents from temp table.", countBefore);
+
+            auditLogService.logAction(
+                    null,
+                    "CLEAR_TEMP_DOCUMENTS",
+                    ActionCategory.SYSTEM,
+                    "TempDocument",
+                    null,
+                    "Cleared all temp documents",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    null,
+                    true,
+                    null,
+                    Map.of("clearedCount", countBefore)
+            );
+        } else {
+            log.info("✅ No temp documents to clear.");
+            auditLogService.logAction(
+                    null,
+                    "CLEAR_TEMP_DOCUMENTS",
+                    ActionCategory.SYSTEM,
+                    "TempDocument",
+                    null,
+                    "No temp documents to clear",
+                    null,
+                    null,
+                    "Telegram Bot",
+                    null,
+                    true,
+                    null,
+                    Map.of("clearedCount", 0L)
+            );
         }
     }
 

@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.bot.common.AdminBot;
 import org.info.tg_bot.bot.common.UserBot;
 import org.info.tg_bot.model.entity.User;
+import org.info.tg_bot.model.enums.ActionCategory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public class NotificationService {
         this.adminBot = adminBot;
     }
     public void notifyUser(Long telegramId, String text, InlineKeyboardMarkup keyboard) {
+        log.info("notifing user...{}", telegramId);
         User user = userService.findByTelegramId(telegramId).orElse(null);
         String username = "";
         if(user != null){
@@ -52,7 +54,7 @@ public class NotificationService {
             auditLogService.logAction(
                     user,
                     "SEND_USER_NOTIFICATION",
-                    org.info.tg_bot.model.enums.ActionCategory.NOTIFICATION,
+                    ActionCategory.NOTIFICATION,
                     "Notification",
                     null,
                     "Notification sent to user",
@@ -62,7 +64,7 @@ public class NotificationService {
                     username,
                     true,
                     null,
-                    Map.of("telegramId", telegramId.toString(), "hasKeyboard", keyboard != null)
+                    Map.of("telegramId", telegramId.toString(), "text", text)
                     );
         } catch (TelegramApiException e) {
             log.error("❌ Ошибка при отправке уведомления пользователю {}: {}", telegramId, e.getMessage());
@@ -70,9 +72,9 @@ public class NotificationService {
             auditLogService.logAction(
                     user,
                     "SEND_USER_NOTIFICATION",
-                    org.info.tg_bot.model.enums.ActionCategory.NOTIFICATION,
+                    ActionCategory.NOTIFICATION,
                     "Notification",
-                    null,
+                    null ,
                     "Failed to send notification to user",
                     null,
                     null,
@@ -104,7 +106,7 @@ public class NotificationService {
             auditLogService.logAction(
                     admin,
                     "SEND_ADMIN_NOTIFICATION",
-                    org.info.tg_bot.model.enums.ActionCategory.NOTIFICATION,
+                    ActionCategory.NOTIFICATION,
                     "Notification",
                     null,
                     "Notification sent to admin",
@@ -114,7 +116,7 @@ public class NotificationService {
                     username,
                     true,
                     null,
-                    Map.of("telegramId", adminTelegramId.toString(), "hasKeyboard", keyboard != null)
+                    Map.of("telegramId", adminTelegramId.toString(), "text", messageText)
 
                     );
         } catch (TelegramApiException e) {
@@ -123,7 +125,7 @@ public class NotificationService {
             auditLogService.logAction(
                     admin,
                     "SEND_ADMIN_NOTIFICATION",
-                    org.info.tg_bot.model.enums.ActionCategory.NOTIFICATION,
+                    ActionCategory.NOTIFICATION,
                     "Notification",
                     null,
                     "Failed to send notification to admin",

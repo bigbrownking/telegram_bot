@@ -7,7 +7,6 @@ import org.info.tg_bot.model.enums.CancellationType;
 import org.info.tg_bot.model.enums.DocumentStatus;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Entity
 @Table(name = "document_cancellations")

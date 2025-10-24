@@ -37,7 +37,9 @@ public class UserService {
     private final Map<Long, Long> waitingForFile = new HashMap<>();
     private final Map<Long, String> pendingCancellations = new HashMap<>();
     private final Map<Long, Boolean> waitingForCancelDocumentNumber = new HashMap<>();
-    private final Map<Long, Long> waitingForExtensionReason = new HashMap<>(); // Moved here
+    private final Map<Long, Long> waitingForExtensionReason = new HashMap<>();
+    private final Map<Long, Integer> lastMessageIds = new HashMap<>();
+
 
     // === Ожидание действий администратора (из AdminCommandHandler) ===
     private final Map<Long, Long> waitingForNewDate = new HashMap<>(); // Для продления срока
@@ -47,6 +49,14 @@ public class UserService {
     // ======================================================
     // ✅ Работа с пользователями
     // ======================================================
+
+    public void setLastMessageId(Long telegramId, Integer messageId) {
+            lastMessageIds.put(telegramId, messageId);
+    }
+
+    public Integer getLastMessageId(Long telegramId) {
+        return lastMessageIds.get(telegramId);
+    }
 
     public Optional<User> findByTelegramId(Long telegramId) {
         return userRepository.findByTelegramId(telegramId);
@@ -264,6 +274,9 @@ public class UserService {
         waitingForExtensionReason.remove(telegramId);
     }
 
+    public User getVC(){
+        return userRepository.findVC().orElse(null);
+    }
     public User findBoss(Long telegramId) {
         Optional<User> optUser = userRepository.findByTelegramId(telegramId);
         if (optUser.isEmpty()) {
@@ -274,10 +287,14 @@ public class UserService {
         String positionName = user.getPosition().getName();
         User boss;
         if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) || "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
-            boss = userRepository.findByDepartmentIdAndPositionName(user.getDepartment().getId(), "РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА")
+            boss = userRepository.findDepartmentBoss(user.getDepartment().getId())
                     .orElse(null);
-        } else {
-            boss = userRepository.findByBranchIdAndPositionNameIn(user.getBranch().getId(),
+        }
+        else if("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equals(positionName)){
+            boss = userRepository.findVC().orElse(null);
+        }
+        else{
+            boss = userRepository.findByDepartmentIdAndBranchIdAndPositionNameIn(user.getDepartment().getId(), user.getBranch().getId(),
                             "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ", "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ_А")
                     .orElse(null);
         }
@@ -296,7 +313,8 @@ public class UserService {
         String positionName = user.getPosition().getName();
         return positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ") ||
                 positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А") ||
-                positionName.equals("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА");
+                positionName.equals("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА") ||
+                positionName.equals("ЗАМЕСТИТЕЛЬ ПРЕДСЕДАТЕЛЯ");
     }
 
     public List<User> findSupervisedUsers(Long bossTelegramId) {

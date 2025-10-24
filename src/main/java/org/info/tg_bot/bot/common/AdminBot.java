@@ -11,6 +11,8 @@ import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
@@ -75,7 +77,8 @@ public class AdminBot extends TelegramLongPollingBot {
 
             Optional<User> user = userService.findByTelegramId(telegramId);
             if (user.isEmpty() || !user.get().isAdmin()) {
-                execute(new SendMessage(chatId.toString(), "🚫 У вас нет доступа к этому боту."));
+                SendMessage response = new SendMessage(chatId.toString(), "🚫 У вас нет доступа к этому боту.");
+                sendAndTrack(chatId, telegramId, response);
                 return;
             }
 
@@ -88,18 +91,19 @@ public class AdminBot extends TelegramLongPollingBot {
 
                 if (callbackData.startsWith("approve_extend:")) {
                     Long requestId = Long.parseLong(callbackData.split(":")[1]);
-                    execute(adminCommandHandler.handleApproveExtendRequest(chatId, requestId, telegramId));
+                    SendMessage response = adminCommandHandler.handleApproveExtendRequest(chatId, requestId, telegramId);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
 
                 if (callbackData.startsWith("reject_extend:")) {
                     Long requestId = Long.parseLong(callbackData.split(":")[1]);
-                    execute(adminCommandHandler.handleRejectExtendRequest(chatId, requestId, telegramId));
+                    SendMessage response = adminCommandHandler.handleRejectExtendRequest(chatId, requestId, telegramId);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
-
 
                 if (callbackData.startsWith("close_without_execution:")) {
                     String regNumber = callbackData.split(":")[1];
@@ -116,13 +120,12 @@ public class AdminBot extends TelegramLongPollingBot {
 
                     keyboard.setKeyboard(rows);
 
-                    SendMessage msg = new SendMessage(
+                    SendMessage response = new SendMessage(
                             chatId.toString(),
                             "❓ Выберите причину закрытия поручения №" + regNumber + ":"
                     );
-                    msg.setReplyMarkup(keyboard);
-
-                    execute(msg);
+                    response.setReplyMarkup(keyboard);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
@@ -134,17 +137,17 @@ public class AdminBot extends TelegramLongPollingBot {
 
                     if (type == CancellationType.OTHER) {
                         userService.setPendingCancellation(chatId, regNumber, type.name());
-
-                        SendMessage askReason = new SendMessage(
+                        SendMessage response = new SendMessage(
                                 chatId.toString(),
                                 "✏ Пожалуйста, введите причину закрытия поручения №" + regNumber + ":"
                         );
-                        execute(askReason);
+                        sendAndTrack(chatId, telegramId, response);
                         execute(new AnswerCallbackQuery(callbackQueryId));
                     } else {
-                        execute(adminCommandHandler.handleCloseWithoutExecution(
+                        SendMessage response = adminCommandHandler.handleCloseWithoutExecution(
                                 chatId, regNumber, telegramId, type, type.getDisplayName()
-                        ));
+                        );
+                        sendAndTrack(chatId, telegramId, response);
                         execute(new AnswerCallbackQuery(callbackQueryId));
                     }
                     return;
@@ -152,31 +155,34 @@ public class AdminBot extends TelegramLongPollingBot {
 
                 if (callbackData.startsWith("task_completed:")) {
                     String regNumber = callbackData.split(":")[1];
-                    execute(adminCommandHandler.handleTaskCompleted(chatId, regNumber, telegramId, null)); // Initial call with no feedback
+                    SendMessage response = adminCommandHandler.handleTaskCompleted(chatId, regNumber, telegramId, null);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
 
                 if (callbackData.startsWith("send_for_revision:")) {
                     String regNumber = callbackData.split(":")[1];
-                    execute(adminCommandHandler.handleSendForRevision(chatId, regNumber, telegramId));
+                    SendMessage response = adminCommandHandler.handleSendForRevision(chatId, regNumber, telegramId);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
 
                 if (callbackData.startsWith("tasks_filter:")) {
                     String statusFilter = callbackData.substring("tasks_filter:".length());
-                    execute(adminCommandHandler.handleTasksFilter(chatId, telegramId, statusFilter));
+                    SendMessage response = adminCommandHandler.handleTasksFilter(chatId, telegramId, statusFilter);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
 
                 if (callbackData.equals("tasks_back")) {
-                    execute(adminCommandHandler.handleTasksCommand(chatId, telegramId));
+                    SendMessage response = adminCommandHandler.handleTasksCommand(chatId, telegramId, null);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
-
             }
 
             // ======================================================
@@ -188,24 +194,29 @@ public class AdminBot extends TelegramLongPollingBot {
 
                 // Обработка номера документа для отмены
                 if (userService.isWaitingForCancelDocumentNumber(telegramId)) {
-                    execute(adminCommandHandler.handleCancelDocumentNumberInput(chatId, telegramId, text));
+                    SendMessage response = adminCommandHandler.handleCancelDocumentNumberInput(chatId, telegramId, text);
+                    sendAndTrack(chatId, telegramId, response);
                     return;
                 }
 
                 // Обработка причины отмены
                 if (userService.isWaitingForCancellationReason(chatId)) {
-                    execute(adminCommandHandler.handleCancelReasonInput(chatId, telegramId, text));
+                    SendMessage response = adminCommandHandler.handleCancelReasonInput(chatId, telegramId, text);
+                    sendAndTrack(chatId, telegramId, response);
                     return;
                 }
 
                 // Обработка причины доработки
                 if (userService.isWaitingForRevisionReason(telegramId)) {
-                    execute(adminCommandHandler.handleRevisionReasonInput(chatId, telegramId, text));
+                    SendMessage response = adminCommandHandler.handleRevisionReasonInput(chatId, telegramId, text);
+                    sendAndTrack(chatId, telegramId, response);
                     return;
                 }
+
                 // Обработка даты
                 if (userService.isWaitingForNewDate(telegramId)) {
-                    execute(adminCommandHandler.handleNewExecutionDate(chatId, telegramId, text));
+                    SendMessage response = adminCommandHandler.handleNewExecutionDate(chatId, telegramId, text);
+                    sendAndTrack(chatId, telegramId, response);
                     return;
                 }
 
@@ -213,24 +224,29 @@ public class AdminBot extends TelegramLongPollingBot {
                 if (userService.isWaitingForCompletionFeedback(telegramId)) {
                     Optional<String> regNumberOpt = userService.consumeWaitingForCompletionFeedback(telegramId);
                     if (regNumberOpt.isPresent()) {
-                        execute(adminCommandHandler.handleTaskCompleted(chatId, regNumberOpt.get(), telegramId, text)); // Pass feedback text
+                        SendMessage response = adminCommandHandler.handleTaskCompleted(chatId, regNumberOpt.get(), telegramId, text);
+                        sendAndTrack(chatId, telegramId, response);
                         return;
                     }
                 }
 
                 // Обработка команд
-                SendMessage response = switch (text) {
-                    case "/start" -> adminCommandHandler.handleStartCommand(chatId, telegramId, username);
-                    case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
-                    case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
-         //           case "/pending" -> adminCommandHandler.handlePendingRequests(chatId, telegramId);
-                    case "/tasks" -> adminCommandHandler.handleTasksCommand(chatId, telegramId);
-                    case "/cancel" -> adminCommandHandler.handleCancelCommand(chatId, telegramId);
-                    default -> new SendMessage(chatId.toString(),
-                            "❓ Команда не распознана. Используйте /help для списка доступных команд.");
-                };
-
-                execute(response);
+                SendMessage response;
+                if (text.startsWith("/tasks")) {
+                    String regNumber = text.contains(" ") ? text.substring(text.indexOf(" ") + 1).trim() : null;
+                    response = adminCommandHandler.handleTasksCommand(chatId, telegramId, regNumber);
+                } else {
+                    response = switch (text) {
+                        case "/start" -> adminCommandHandler.handleStartCommand(chatId, telegramId, username);
+                        case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
+                        case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
+                        case "/pending" -> adminCommandHandler.handlePendingRequests(chatId, telegramId);
+                        case "/cancel" -> adminCommandHandler.handleCancelCommand(chatId, telegramId);
+                        default -> new SendMessage(chatId.toString(),
+                                "❓ Команда не распознана. Используйте /help для списка доступных команд.");
+                    };
+                }
+                sendAndTrack(chatId, telegramId, response);
                 return;
             }
 
@@ -238,13 +254,45 @@ public class AdminBot extends TelegramLongPollingBot {
             if (update.hasMessage() && update.getMessage().hasDocument()) {
                 String fileName = update.getMessage().getDocument().getFileName();
                 String fileId = update.getMessage().getDocument().getFileId();
-                execute(adminCommandHandler.handleExcelUpload(chatId, telegramId, fileName, fileId, this));
+                SendMessage response = adminCommandHandler.handleExcelUpload(chatId, telegramId, fileName, fileId, this);
+                sendAndTrack(chatId, telegramId, response);
             }
 
         } catch (TelegramApiException e) {
             log.error("Error sending message: {}", e.getMessage(), e);
         } catch (Exception e) {
             log.error("Unexpected error: {}", e.getMessage(), e);
+        }
+    }
+
+    private void deletePreviousMessage(Long chatId, Long telegramId) {
+        Integer lastMsgId = userService.getLastMessageId(telegramId);
+        if (lastMsgId != null) {
+            try {
+                DeleteMessage deleteMessage = new DeleteMessage(chatId.toString(), lastMsgId);
+                execute(deleteMessage);
+                log.info("🗑 Successfully deleted previous message {} for user {}", lastMsgId, telegramId);
+                userService.setLastMessageId(telegramId, null);
+            } catch (TelegramApiException e) {
+                log.info("⚠ Failed to delete message {} for user {}: {}", lastMsgId, telegramId, e.getMessage(), e);
+            }
+        } else {
+            log.info("ℹ No previous message to delete for telegramId {}", telegramId);
+        }
+    }
+
+    private void sendAndTrack(Long chatId, Long telegramId, SendMessage response) throws TelegramApiException {
+        if (response == null) {
+            log.info("⚠ No response to send for telegramId {}", telegramId);
+            return;
+        }
+        deletePreviousMessage(chatId, telegramId);
+        Message sent = execute(response);
+        if (sent != null && sent.getMessageId() != null) {
+            userService.setLastMessageId(telegramId, sent.getMessageId());
+            log.info("💬 Successfully sent message {} to telegramId {}", sent.getMessageId(), telegramId);
+        } else {
+            log.info("⚠ Failed to retrieve messageId after sending to telegramId {}", telegramId);
         }
     }
 }

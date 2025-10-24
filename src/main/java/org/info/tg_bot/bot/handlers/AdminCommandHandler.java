@@ -8,6 +8,7 @@ import org.info.tg_bot.model.enums.CancellationType;
 import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.service.*;
 import org.info.tg_bot.service.AuditLogService;
+import org.info.tg_bot.util.KeyBoardUtil;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
@@ -37,12 +38,21 @@ public class AdminCommandHandler {
     private final DocumentCancellationService documentCancellationService;
     private final AuditLogService auditLogService;
 
+    private final KeyBoardUtil keyBoardUtil;
+
     // --- Commands ---
     public SendMessage handleStartCommand(Long chatId, Long telegramId, String username) {
         String msg = String.format(
-                "👋 Здравствуйте, %s!\n\n" +
-                        "Вы авторизованы как администратор. " +
-                        "Используйте /upload для загрузки Excel-файлов, /pending для просмотра запросов на продление, или /cancel для отмены документа.",
+                """
+                        👋 Здравствуйте, %s!
+                            
+                        Вы авторизованы как администратор. Вот что вы можете сделать:
+                        📤 /upload – Загрузить Excel-файл с поручениями
+                        📋 /tasks – Просмотреть все ваши поручения
+                        ⏳ /pending – Проверить запросы на продление
+                        🚫 /cancel – Отменить документ
+                        ❓ /help – Показать список команд
+                        """,
                 username != null ? username : "администратор"
         );
         if (userService.existsByTelegramId(telegramId)) {
@@ -160,7 +170,7 @@ public class AdminCommandHandler {
                         true,
                         null,
                         Map.of("fileName", fileName, "documentCount", documents.size())
-                        );
+                );
                 return new SendMessage(chatId.toString(),
                         String.format("✅ Файл \"%s\" обработан. Загружено %d документов.", fileName, documents.size()));
             }
@@ -187,6 +197,11 @@ public class AdminCommandHandler {
         User admin = adminOpt.get();
         User executor = document.getExecutor();
 
+        if (document.getStatus() == DocumentStatus.CANCELLED) {
+            SendMessage message = new SendMessage(chatId.toString(), "⚠ Поручение №" + regNumber + " уже отмечено как закрытое без исполнения.");
+            message.enableHtml(true);
+            return message;
+        }
         try {
             DocumentStatus oldStatus = document.getStatus();
             document.setStatus(DocumentStatus.CANCELLED);
@@ -262,13 +277,22 @@ public class AdminCommandHandler {
         User admin = adminOpt.get();
         User executor = document.getExecutor();
 
+        if (document.getStatus() == DocumentStatus.COMPLETED) {
+            SendMessage message = new SendMessage(chatId.toString(), "⚠ Поручение №" + regNumber + " уже отмечено как выполненное.");
+            message.enableHtml(true);
+            return message;
+        }
+
         if (feedback == null) {
             userService.setWaitingForCompletionFeedback(adminTelegramId, regNumber);
             SendMessage message = new SendMessage(chatId.toString(),
-                    String.format("🔍 <b>Подтверждение выполнения</b>\n\n" +
-                                    "📄 Поручение №%s\n" +
-                                    "📝 Описание: %s\n\n" +
-                                    "Пожалуйста, введите комментарий или обратную связь для исполнителя.",
+                    String.format("""
+                                    🔍 <b>Подтверждение выполнения</b>
+
+                                    📄 Поручение №%s
+                                    📝 Описание: %s
+
+                                    Пожалуйста, введите комментарий или обратную связь для исполнителя.""",
                             document.getRegNumber(), document.getSummary()));
             message.enableHtml(true);
             return message;
@@ -313,11 +337,13 @@ public class AdminCommandHandler {
                 notificationService.notifyUser(
                         executor.getTelegramId(),
                         String.format(
-                                "✅ <b>Поручение исполнено</b>\n\n" +
-                                        "📄 Поручение №%s\n" +
-                                        "📝 Описание: %s\n" +
-                                        "👤 Подтвердил: %s\n" +
-                                        "💬 Комментарий: %s",
+                                """
+                                        ✅ <b>Поручение исполнено</b>
+
+                                        📄 Поручение №%s
+                                        📝 Описание: %s
+                                        👤 Подтвердил: %s
+                                        💬 Комментарий: %s""",
                                 document.getRegNumber(),
                                 document.getSummary(),
                                 admin.getFullName(),
@@ -354,10 +380,13 @@ public class AdminCommandHandler {
         userService.setWaitingForRevisionReason(adminTelegramId, regNumber);
 
         String message = String.format(
-                "🔄 <b>Отправка поручения на доработку</b>\n\n" +
-                        "📄 Поручение №%s\n" +
-                        "📝 Описание: %s\n\n" +
-                        "Пожалуйста, укажите причину отправки на доработку.",
+                """
+                        🔄 <b>Отправка поручения на доработку</b>
+
+                        📄 Поручение №%s
+                        📝 Описание: %s
+
+                        Пожалуйста, укажите причину отправки на доработку.""",
                 document.getRegNumber(),
                 document.getSummary()
         );
@@ -416,12 +445,15 @@ public class AdminCommandHandler {
             notificationService.notifyUser(
                     executor.getTelegramId(),
                     String.format(
-                            "🔄 <b>Поручение отправлено на доработку</b>\n\n" +
-                                    "📄 Поручение №%s\n" +
-                                    "📝 Описание: %s\n" +
-                                    "💬 Причина доработки: %s\n" +
-                                    "👤 Отправил на доработку: %s\n\n" +
-                                    "Пожалуйста, доработайте и отправьте файл заново.",
+                            """
+                                    🔄 <b>Поручение отправлено на доработку</b>
+
+                                    📄 Поручение №%s
+                                    📝 Описание: %s
+                                    💬 Причина доработки: %s
+                                    👤 Отправил на доработку: %s
+
+                                    Пожалуйста, доработайте и отправьте результат заново.""",
                             document.getRegNumber(),
                             document.getSummary(),
                             reason,
@@ -439,76 +471,75 @@ public class AdminCommandHandler {
         }
     }
 
-    public SendMessage handleTasksCommand(Long chatId, Long adminTelegramId) {
+    public SendMessage handleTasksCommand(Long chatId, Long adminTelegramId, String regNumber) {
         Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
         if (adminOpt.isEmpty()) {
             return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
         }
 
         User admin = adminOpt.get();
-        List<Document> documents = documentService.findByUploadedBy(admin);
 
-        if (documents.isEmpty()) {
-            return new SendMessage(chatId.toString(), "📭 Вы еще не загружали поручений.");
-        }
-
-        Map<DocumentStatus, List<Document>> groupedByStatus = documents.stream()
-                .collect(Collectors.groupingBy(Document::getStatus));
-
-        StringBuilder text = new StringBuilder();
-        text.append("📋 <b>Ваши поручения</b>\n");
-        text.append("Всего загружено: ").append(documents.size()).append(" поручений\n\n");
-
-        text.append("📊 <b>Статистика:</b>\n");
-        for (DocumentStatus status : DocumentStatus.values()) {
-            int count = groupedByStatus.getOrDefault(status, List.of()).size();
-            if (count > 0) {
-                text.append("  ").append(status.getDisplayName()).append(": ").append(count).append("\n");
+        if (regNumber != null && !regNumber.trim().isEmpty()) {
+            Optional<Document> documentOpt = documentService.findByRegNumber(regNumber.trim());
+            if (documentOpt.isEmpty()) {
+                return new SendMessage(chatId.toString(), "⚠ Документ с номером " + regNumber + " не найден.");
             }
+
+            Document document = documentOpt.get();
+            if (!document.getUploadedBy().getTelegramId().equals(adminTelegramId)) {
+                return new SendMessage(chatId.toString(), "⚠ У вас нет прав для просмотра этого документа.");
+            }
+
+            StringBuilder text = new StringBuilder();
+            text.append("📋 <b>Детали поручения</b>\n\n");
+            text.append("📄 Рег. №: ").append(document.getRegNumber()).append("\n");
+            text.append("📝 Описание: ").append(document.getSummary() != null ? document.getSummary() : "Не указано").append("\n");
+            text.append("👤 Исполнитель: ").append(document.getExecutor() != null ? document.getExecutor().getFullName() : "Не назначен").append("\n");
+            text.append("🗓 Срок: ").append(document.getExecutionDate() != null ? document.getExecutionDate() : "Не указан").append("\n");
+            text.append("📊 Статус: ").append(document.getStatus().getDisplayName()).append("\n");
+
+            LocalDateTime now = LocalDateTime.now();
+            if (document.getExecutionDate() != null && document.getExecutionDate().isBefore(now.toLocalDate())) {
+                text.append("\n⚠ <i>Срок исполнения просрочен!</i>\n");
+            }
+
+            text.append("\n💡 <i>Выберите действие или используйте /tasks [регистрационный номер] для быстрого доступа к другому документу.</i>");
+
+            SendMessage message = new SendMessage(chatId.toString(), text.toString());
+            message.enableHtml(true);
+            message.setReplyMarkup(keyBoardUtil.createTaskActionsKeyboard(document));
+            return message;
+        } else {
+            List<Document> documents = documentService.findByUploadedBy(admin);
+
+            if (documents.isEmpty()) {
+                return new SendMessage(chatId.toString(), "📭 Вы еще не загружали поручений.");
+            }
+
+            Map<DocumentStatus, List<Document>> groupedByStatus = documents.stream()
+                    .collect(Collectors.groupingBy(Document::getStatus));
+
+            StringBuilder text = new StringBuilder();
+            text.append("📋 <b>Ваши поручения</b>\n");
+            text.append("Всего загружено: ").append(documents.size()).append(" поручений\n\n");
+
+            text.append("📊 <b>Статистика:</b>\n");
+            for (DocumentStatus status : DocumentStatus.values()) {
+                int count = groupedByStatus.getOrDefault(status, List.of()).size();
+                if (count > 0) {
+                    text.append("  ").append(status.getDisplayName()).append(": ").append(count).append("\n");
+                }
+            }
+            text.append("\n");
+            text.append("💡 <i>Выберите статус для просмотра деталей или используйте /tasks [регистрационный номер] для быстрого доступа к конкретному документу.</i>");
+
+            SendMessage message = new SendMessage(chatId.toString(), text.toString());
+            message.enableHtml(true);
+            message.setReplyMarkup(keyBoardUtil.createTaskFilterKeyboard(groupedByStatus));
+            return message;
         }
-        text.append("\n");
-
-        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-        keyboard.add(List.of(
-                InlineKeyboardButton.builder()
-                        .text("🆕 В работе (" + groupedByStatus.getOrDefault(DocumentStatus.IN_PROGRESS, List.of()).size() + ")")
-                        .callbackData("tasks_filter:IN_PROGRESS")
-                        .build(),
-                InlineKeyboardButton.builder()
-                        .text("⏳ На рассмотрении (" + groupedByStatus.getOrDefault(DocumentStatus.PENDING, List.of()).size() + ")")
-                        .callbackData("tasks_filter:PENDING")
-                        .build()
-        ));
-
-        keyboard.add(List.of(
-                InlineKeyboardButton.builder()
-                        .text("🔄 На доработке (" + groupedByStatus.getOrDefault(DocumentStatus.REVISION, List.of()).size() + ")")
-                        .callbackData("tasks_filter:REVISION")
-                        .build(),
-                InlineKeyboardButton.builder()
-                        .text("✅ Исполнено (" + groupedByStatus.getOrDefault(DocumentStatus.COMPLETED, List.of()).size() + ")")
-                        .callbackData("tasks_filter:COMPLETED")
-                        .build()
-        ));
-
-        keyboard.add(List.of(
-                InlineKeyboardButton.builder()
-                        .text("❌ Отменено (" + groupedByStatus.getOrDefault(DocumentStatus.CANCELLED, List.of()).size() + ")")
-                        .callbackData("tasks_filter:CANCELLED")
-                        .build(),
-                InlineKeyboardButton.builder()
-                        .text("📋 Все")
-                        .callbackData("tasks_filter:ALL")
-                        .build()
-        ));
-
-        text.append("💡 <i>Выберите статус для просмотра деталей</i>");
-
-        SendMessage message = new SendMessage(chatId.toString(), text.toString());
-        message.enableHtml(true);
-        message.setReplyMarkup(new InlineKeyboardMarkup(keyboard));
-        return message;
     }
+
 
     public SendMessage handleTasksFilter(Long chatId, Long adminTelegramId, String statusFilter) {
         Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
@@ -519,7 +550,7 @@ public class AdminCommandHandler {
         User admin = adminOpt.get();
         List<Document> documents;
 
-        if ("ALL".equals(statusFilter)) {
+        if ("ALL" .equals(statusFilter)) {
             documents = documentService.findByUploadedBy(admin);
         } else {
             DocumentStatus status = DocumentStatus.valueOf(statusFilter);
@@ -527,13 +558,13 @@ public class AdminCommandHandler {
         }
 
         if (documents.isEmpty()) {
-            String statusName = "ALL".equals(statusFilter) ? "всего" : DocumentStatus.valueOf(statusFilter).getDisplayName();
+            String statusName = "ALL" .equals(statusFilter) ? "всего" : DocumentStatus.valueOf(statusFilter).getDisplayName();
             return new SendMessage(chatId.toString(),
                     "📭 Нет поручений со статусом: " + statusName);
         }
 
         StringBuilder text = new StringBuilder();
-        String filterName = "ALL".equals(statusFilter) ? "Все поручения" : DocumentStatus.valueOf(statusFilter).getDisplayName();
+        String filterName = "ALL" .equals(statusFilter) ? "Все поручения" : DocumentStatus.valueOf(statusFilter).getDisplayName();
         text.append("📋 <b>").append(filterName).append("</b>\n");
         text.append("Найдено: ").append(documents.size()).append(" поручений\n\n");
 
@@ -546,44 +577,15 @@ public class AdminCommandHandler {
             text.append("   🗓 Срок: ").append(doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан").append("\n");
             text.append("   📊 Статус: ").append(doc.getStatus().getDisplayName()).append("\n");
 
-            List<InlineKeyboardButton> buttons = new ArrayList<>();
-            if (doc.getStatus() == DocumentStatus.PENDING) {
-                buttons.add(InlineKeyboardButton.builder()
-                        .text("🔍 Рассмотреть")
-                        .callbackData("review:" + doc.getRegNumber())
-                        .build());
-            }
-            if (doc.getStatus() != DocumentStatus.CANCELLED && doc.getStatus() != DocumentStatus.COMPLETED) {
-                buttons.add(InlineKeyboardButton.builder()
-                        .text("🚫 Отменить")
-                        .callbackData("close_without_execution:" + doc.getRegNumber())
-                        .build());
-            }
-            if (doc.getStatus() == DocumentStatus.IN_PROGRESS || doc.getStatus() == DocumentStatus.PENDING) {
-                buttons.add(InlineKeyboardButton.builder()
-                        .text("✅ Завершить")
-                        .callbackData("task_completed:" + doc.getRegNumber())
-                        .build());
-            }
-            if (doc.getStatus() == DocumentStatus.IN_PROGRESS || doc.getStatus() == DocumentStatus.PENDING) {
-                buttons.add(InlineKeyboardButton.builder()
-                        .text("🔄 На доработку")
-                        .callbackData("send_for_revision:" + doc.getRegNumber())
-                        .build());
-            }
-            if (!buttons.isEmpty()) {
-                keyboard.add(buttons);
+            InlineKeyboardMarkup taskActions = keyBoardUtil.createTaskActionsKeyboard(doc);
+            if (!taskActions.getKeyboard().isEmpty()) {
+                keyboard.addAll(taskActions.getKeyboard());
             }
 
             text.append("\n");
         }
 
-        keyboard.add(List.of(
-                InlineKeyboardButton.builder()
-                        .text("⬅ Назад к статистике")
-                        .callbackData("tasks_back")
-                        .build()
-        ));
+        keyboard.addAll(keyBoardUtil.createBackToStatsKeyboard().getKeyboard());
 
         SendMessage message = new SendMessage(chatId.toString(), text.toString());
         message.enableHtml(true);
@@ -602,13 +604,16 @@ public class AdminCommandHandler {
         userService.setWaitingForNewDate(adminTelegramId, requestId);
 
         String message = String.format(
-                "🗓 <b>Одобрение запроса на продление</b>\n\n" +
-                        "📄 Поручение №%s\n" +
-                        "👤 Исполнитель: %s\n" +
-                        "📅 Текущий срок: %s\n" +
-                        "💬 Причина: %s\n\n" +
-                        "Введите новую дату исполнения в формате <code>ГГГГ-ММ-ДД</code>\n" +
-                        "Например: <code>2025-12-31</code>",
+                """
+                        🗓 <b>Одобрение запроса на продление</b>
+
+                        📄 Поручение №%s
+                        👤 Исполнитель: %s
+                        📅 Текущий срок: %s
+                        💬 Причина: %s
+
+                        Введите новую дату исполнения в формате <code>ГГГГ-ММ-ДД</code>
+                        Например: <code>2025-12-31</code>""",
                 request.getDocument().getRegNumber(),
                 request.getUser().getFullName(),
                 request.getDocument().getExecutionDate(),
@@ -628,6 +633,7 @@ public class AdminCommandHandler {
 
         ExtensionRequest request = reqOpt.get();
         Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+        Document document = documentService.findById(request.getDocument().getId()).orElse(null);
 
         if (adminOpt.isEmpty()) {
             return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
@@ -650,23 +656,25 @@ public class AdminCommandHandler {
                     true,
                     null,
                     Map.of("documentId", request.getDocument().getId(), "reason", "Request rejected by admin")
-                    );
+            );
 
             extensionRequestService.rejectRequest(
                     request,
                     admin,
                     "Запрос отклонён администратором"
             );
-
             notificationService.notifyUser(
                     request.getUser().getTelegramId(),
                     String.format(
-                            "❌ <b>Запрос отклонён</b>\n\n" +
-                                    "📄 Поручение №%s\n" +
-                                    "📝 Описание: %s\n" +
-                                    "🗓 Срок исполнения: %s\n" +
-                                    "👤 Отклонил: %s\n\n" +
-                                    "Пожалуйста, выполните поручение в установленный срок.",
+                            """
+                                    ❌ <b>Запрос отклонён</b>
+
+                                    📄 Поручение №%s
+                                    📝 Описание: %s
+                                    🗓 Срок исполнения: %s
+                                    👤 Отклонил: %s
+
+                                    Пожалуйста, выполните поручение в установленный срок.""",
                             request.getDocument().getRegNumber(),
                             request.getDocument().getSummary(),
                             request.getDocument().getExecutionDate(),
@@ -719,10 +727,10 @@ public class AdminCommandHandler {
             LocalDate newDate = LocalDate.parse(text.trim());
             LocalDate currentDate = request.getDocument().getExecutionDate();
 
-            if (newDate.isBefore(currentDate) || newDate.isEqual(currentDate)) {
+            if (newDate.isBefore(currentDate)) {
                 userService.setWaitingForNewDate(adminTelegramId, requestId);
                 return new SendMessage(chatId.toString(),
-                        String.format("⚠ Новая дата (%s) должна быть позже текущей (%s). Попробуйте снова.",
+                        String.format("⚠ Новая дата (%s) должна быть не раньше текущей (%s). Попробуйте снова.",
                                 newDate, currentDate));
             }
 
@@ -750,51 +758,39 @@ public class AdminCommandHandler {
             extensionRequestService.approveRequest(
                     request,
                     admin,
-                    String.format("Срок продлён с %s до %s", oldDate, newDate)
+                    String.format("Срок продлён с %s до %s", oldDate, newDate),
+                    oldDate,
+                    newDate
             );
-
-            InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup(List.of(
-                    List.of(
-                            InlineKeyboardButton.builder()
-                                    .text("✅ Одобрить")
-                                    .callbackData("approve_extend:" + request.getId())
-                                    .build(),
-                            InlineKeyboardButton.builder()
-                                    .text("❌ Отклонить")
-                                    .callbackData("reject_extend:" + request.getId())
-                                    .build()
-                    )
-            ));
-            User adminUploader = doc.getUploadedBy();
-            if (adminUploader != null && adminUploader.getTelegramId() != null) {
-                notificationService.notifyAdmin(
-                        adminUploader.getTelegramId(),
-                        String.format(
-                                "🔔 <b>Поручение продлено</b>\n\n" +
-                                        "📄 Поручение №%s\n" +
-                                        "👤 Исполнитель: %s\n" +
-                                        "🗓 Старый срок: %s\n" +
-                                        "🗓 Новый срок: %s\n" +
-                                        "👤 Одобрил: %s\n" +
-                                        "💬 Причина: %s",
-                                doc.getRegNumber(),
-                                request.getUser().getFullName(),
-                                oldDate,
-                                newDate,
-                                admin.getFullName(),
-                                request.getReason() != null ? request.getReason() : "—"
-                        ),
-                        keyboard
-                );
-                log.info("🔔 Notification sent to admin {} about extension of document {}",
-                        adminUploader.getTelegramId(), doc.getRegNumber());
-            } else {
-                log.warn("No admin uploader found for document {}", doc.getRegNumber());
-            }
 
             log.info("✅ Extension request approved: doc={}, newDate={}, admin={}",
                     doc.getRegNumber(), newDate, admin.getTelegramId());
 
+            User executor = request.getUser();
+            if (executor != null && executor.getTelegramId() != null) {
+                notificationService.notifyUser(
+                        executor.getTelegramId(),
+                        String.format(
+                                """
+                                        📢 <b>Срок поручения продлён</b>
+                                            
+                                        📄 Поручение №%s
+                                        🗓 Старый срок: %s
+                                        🗓 Новый срок: %s
+                                        👤 Одобрил: %s
+                                        💬 Причина: %s
+                                        """,
+                                doc.getRegNumber(),
+                                oldDate,
+                                newDate,
+                                admin.getFullName(),
+                                request.getReason() != null ? request.getReason() : "—"
+                        ), null
+                );
+                log.info("🔔 Notified executor {} about new deadline for document {}", executor.getTelegramId(), doc.getRegNumber());
+            } else {
+                log.warn("⚠ Executor not found or missing telegramId for document {}", doc.getRegNumber());
+            }
             return new SendMessage(chatId.toString(),
                     String.format("✅ Срок поручения №%s успешно продлён до %s", doc.getRegNumber(), newDate));
 
@@ -807,5 +803,37 @@ public class AdminCommandHandler {
             return new SendMessage(chatId.toString(),
                     "⚠ Произошла ошибка при одобрении запроса. Попробуйте позже.");
         }
+    }
+
+    public SendMessage handlePendingRequests(Long chatId, Long adminTelegramId) {
+        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+        if (adminOpt.isEmpty()) {
+            return new SendMessage(chatId.toString(), "⚠ Админ не найден.");
+        }
+
+        User admin = adminOpt.get();
+        List<ExtensionRequest> pending = extensionRequestService.findPendingRequestsByAdmin(admin);
+
+        if (pending.isEmpty()) {
+            return new SendMessage(chatId.toString(), "📭 Нет ожидающих запросов на продление от ваших исполнителей.");
+        }
+
+        StringBuilder text = new StringBuilder("📋 <b>Ваши запросы на продление:</b>\n\n");
+
+        int counter = 1;
+        for (ExtensionRequest req : pending) {
+            text.append(counter++).append(". 📄 Поручение №<b>").append(req.getDocument().getRegNumber()).append("</b>\n")
+                    .append("   👤 Исполнитель: ").append(req.getUser().getFullName()).append("\n")
+                    .append("   🗓 Текущий срок: ").append(req.getDocument().getExecutionDate()).append("\n")
+                    .append("   💬 Причина: ").append(req.getReason() != null ? req.getReason() : "—").append("\n")
+                    .append("   📅 Запрошено: ").append(req.getCreatedAt().toLocalDate()).append("\n\n");
+        }
+
+        text.append("\n💡 <i>Нажмите на кнопки ниже для одобрения или отклонения запросов</i>");
+
+        SendMessage message = new SendMessage(chatId.toString(), text.toString());
+        message.enableHtml(true);
+        message.setReplyMarkup(keyBoardUtil.createPendingRequestsKeyboard(pending));
+        return message;
     }
 }

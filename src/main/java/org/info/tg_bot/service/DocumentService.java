@@ -54,6 +54,12 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public List<Document> findActiveDocumentsNotCompletedOrCancelled(LocalDate today) {
+        return documentRepository.findByExecutionDateAfterAndStatusNotIn(today,
+                List.of(DocumentStatus.COMPLETED, DocumentStatus.CANCELLED));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Document> findOverduedDocumentsNotCompletedOrCancelled(LocalDate today) {
         return documentRepository.findByExecutionDateBeforeAndStatusNotIn(today,
                 List.of(DocumentStatus.COMPLETED, DocumentStatus.CANCELLED));
     }

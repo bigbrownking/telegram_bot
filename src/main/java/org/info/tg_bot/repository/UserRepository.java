@@ -13,10 +13,11 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByTelegramId(Long telegramId);
     List<User> findBySurnameIgnoreCase(String surname);
-    List<User> findByRole(UserRole role);
-    List<User> findByIsActiveTrue();
-    Optional<User> findByDepartmentIdAndPositionName(Long depId, String positionName);
-    Optional<User> findByBranchIdAndPositionNameIn(Long branchId, String... positionNames);
+    @Query("SELECT u FROM User u WHERE u.department.id = :depId AND u.position.name = 'РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА' AND u.isActive = true")
+    Optional<User> findDepartmentBoss(Long depId);
+    @Query("SELECT u FROM User u WHERE u.position.name = 'ЗАМЕСТИТЕЛЬ ПРЕДСЕДАТЕЛЯ' AND u.isActive = true")
+    Optional<User> findVC();
+    Optional<User> findByDepartmentIdAndBranchIdAndPositionNameIn(Long departmentId, Long branchId, String... positionNames);
     boolean existsByTelegramId(Long telegramId);
     @Query("SELECT u FROM User u WHERE (u.department.id = :departmentId OR u.branch.id = :branchId) " +
             "AND u.position.name NOT IN ('РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ', 'РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А', 'РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА') " +

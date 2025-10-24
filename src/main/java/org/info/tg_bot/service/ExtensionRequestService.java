@@ -1,6 +1,5 @@
 package org.info.tg_bot.service;
 
-import jakarta.ws.rs.core.Request;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.info.tg_bot.model.entity.Document;
@@ -8,9 +7,11 @@ import org.info.tg_bot.model.entity.ExtensionRequest;
 import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.model.enums.RequestStatus;
 import org.info.tg_bot.repository.ExtensionRequestRepository;
+import org.springframework.cglib.core.Local;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -52,21 +53,36 @@ public class ExtensionRequestService {
     }
 
     @Transactional
-    public ExtensionRequest approveRequest(ExtensionRequest request, User user, String comment) {
+    public ExtensionRequest approveRequest(ExtensionRequest request, User user, String comment,
+                                           LocalDate oldDeadline, LocalDate newDeadline) {
         request.setStatus(RequestStatus.APPROVED);
         request.setReviewedBy(user);
+        request.setOldDeadline(oldDeadline);
+        request.setNewDeadline(newDeadline);
         request.setReviewedAt(LocalDateTime.now());
         request.setReviewerComment(comment);
         return extensionRequestRepository.save(request);
     }
 
     @Transactional
-    public ExtensionRequest rejectRequest(ExtensionRequest request, User user, String comment) {
+    public ExtensionRequest sendToAdminRequest(ExtensionRequest request, User user, String comment,
+                                           LocalDate oldDeadline, LocalDate newDeadline) {
+        request.setStatus(RequestStatus.PENDING);
+        request.setReviewedBy(user);
+        request.setOldDeadline(oldDeadline);
+        request.setNewDeadline(newDeadline);
+        request.setReviewedAt(LocalDateTime.now());
+        request.setReviewerComment(comment);
+        return extensionRequestRepository.save(request);
+    }
+
+    @Transactional
+    public void rejectRequest(ExtensionRequest request, User user, String comment) {
         request.setStatus(RequestStatus.REJECTED);
         request.setReviewedBy(user);
         request.setReviewedAt(LocalDateTime.now());
         request.setReviewerComment(comment);
-        return extensionRequestRepository.save(request);
+        extensionRequestRepository.save(request);
     }
 
     @Transactional(readOnly = true)
@@ -85,5 +101,14 @@ public class ExtensionRequestService {
         }
         log.info("Fetching pending requests for {} users", users.size());
         return extensionRequestRepository.findByUserInAndStatus(users, RequestStatus.PENDING);
+    }
+
+    public List<ExtensionRequest> findPendingRequestsByAdmin(User admin){
+        if(!admin.isAdmin()){
+            log.info("User {} is not admin", admin.getFullName());
+            return List.of();
+        }
+        log.info("Fetching pending requests for {}", admin.getFullName());
+        return extensionRequestRepository.findPendingByAdmin(admin);
     }
 }

@@ -9,6 +9,8 @@ import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -77,7 +79,7 @@ public class UserBot extends TelegramLongPollingBot {
 
                 if (!userService.existsByTelegramId(telegramId)) {
                     SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, callbackData);
-                    execute(response);
+                    sendAndTrack(chatId, telegramId, response);
                     execute(new AnswerCallbackQuery(callbackQueryId));
                     return;
                 }
@@ -110,8 +112,10 @@ public class UserBot extends TelegramLongPollingBot {
                 Long telegramId = update.getMessage().getFrom().getId();
                 String username = update.getMessage().getFrom().getUserName();
 
+                SendMessage response;
+
                 if (text.startsWith("/")) {
-                    SendMessage response = switch (text) {
+                    response = switch (text) {
                         case "/start" -> {
                             userService.clearWaitingForTaskNumber(telegramId);
                             userService.clearWaitingForFile(telegramId);
@@ -129,46 +133,40 @@ public class UserBot extends TelegramLongPollingBot {
                         default -> new SendMessage(chatId.toString(),
                                 "❓ Команда не распознана. Используйте /help для списка доступных команд.");
                     };
-                    execute(response);
+                    sendAndTrack(chatId, telegramId, response); // Handle deletion and tracking outside the switch
                     return;
                 }
 
                 // Registration process
                 if (!userService.existsByTelegramId(telegramId)) {
-                    SendMessage response = userCommandHandler.handleRegistrationStep(chatId, telegramId, text);
-                    execute(response);
+                    response = userCommandHandler.handleRegistrationStep(chatId, telegramId, text);
+                    sendAndTrack(chatId, telegramId, response);
                     return;
                 }
 
                 // Extension reason input
                 if (userService.isWaitingForExtensionReason(telegramId)) {
-                    SendMessage response = userCommandHandler.handleExtensionReasonInput(chatId, telegramId, text);
-                    execute(response);
-                    return;
-                }
-
-                // Обработка продления срока
-                if (userService.isWaitingForNewDate(telegramId)) {
-                    execute(userCommandHandler.handleNewExecutionDate(chatId, telegramId, text));
+                    response = userCommandHandler.handleExtensionReasonInput(chatId, telegramId, text);
+                    sendAndTrack(chatId, telegramId, response);
                     return;
                 }
 
                 // Waiting for task number
                 if (userService.isWaitingForTaskNumber(telegramId)) {
-                    SendMessage response = userCommandHandler.handleTaskSelection(chatId, telegramId, text);
+                    response = userCommandHandler.handleTaskSelection(chatId, telegramId, text);
                     execute(response);
                     return;
                 }
 
                 // Text result for document
                 if (userService.isWaitingForFile(telegramId)) {
-                    SendMessage response = userCommandHandler.handleTextResultSubmission(chatId, telegramId, text);
+                    response = userCommandHandler.handleTextResultSubmission(chatId, telegramId, text);
                     execute(response);
                     return;
                 }
 
                 // Default case
-                SendMessage response = new SendMessage(chatId.toString(),
+                response = new SendMessage(chatId.toString(),
                         "❓ Команда не распознана. Используйте /help для списка доступных команд.");
                 execute(response);
             }
@@ -177,6 +175,37 @@ public class UserBot extends TelegramLongPollingBot {
             log.error("❌ Telegram API error: {}", e.getMessage(), e);
         } catch (Exception e) {
             log.error("❌ Unexpected error in UserBot: {}", e.getMessage(), e);
+        }
+    }
+
+    private void deletePreviousMessage(Long chatId, Long telegramId) {
+        Integer lastMsgId = userService.getLastMessageId(telegramId);
+        if (lastMsgId != null) {
+            try {
+                DeleteMessage deleteMessage = new DeleteMessage(chatId.toString(), lastMsgId);
+                execute(deleteMessage);
+                log.info("🗑 Successfully deleted previous message {} for user {}", lastMsgId, telegramId);
+                userService.setLastMessageId(telegramId, null);
+            } catch (TelegramApiException e) {
+                log.info("⚠ Failed to delete message {} for user {}: {}", lastMsgId, telegramId, e.getMessage(), e);
+            }
+        } else {
+            log.info("ℹ No previous message to delete for telegramId {}", telegramId);
+        }
+    }
+
+    private void sendAndTrack(Long chatId, Long telegramId, SendMessage response) throws TelegramApiException {
+        if (response == null) {
+            log.info("⚠ No response to send for telegramId {}", telegramId);
+            return;
+        }
+        deletePreviousMessage(chatId, telegramId);
+        Message sent = execute(response);
+        if (sent != null && sent.getMessageId() != null) {
+            userService.setLastMessageId(telegramId, sent.getMessageId());
+            log.info("💬 Successfully sent message {} to telegramId {}", sent.getMessageId(), telegramId);
+        } else {
+            log.info("⚠ Failed to retrieve messageId after sending to telegramId {}", telegramId);
         }
     }
 }

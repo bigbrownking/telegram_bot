@@ -16,15 +16,4 @@ public enum DocumentStatus {
     DocumentStatus(String displayName) {
         this.displayName = displayName;
     }
-
-    public String getEmoji() {
-        return switch (this) {
-            case PENDING -> "⏳";
-            case IN_PROGRESS -> "🔄";
-            case COMPLETED -> "✅";
-            case OVERDUE -> "🔴";
-            case REVISION -> "🔙";
-            case CANCELLED -> "❌";
-        };
-    }
 }

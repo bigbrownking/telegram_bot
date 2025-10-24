@@ -4,15 +4,12 @@ import lombok.Getter;
 
 @Getter
 public enum RequestStatus {
-    PENDING("Ожидает рассмотрения", "⏳"),
-    APPROVED("Одобрено", "✅"),
-    REJECTED("Отклонено", "❌");
+    PENDING("Ожидает рассмотрения"),
+    APPROVED("Одобрено"),
+    REJECTED("Отклонено");
 
     private final String displayName;
-    private final String emoji;
-
-    RequestStatus(String displayName, String emoji) {
+    RequestStatus(String displayName) {
         this.displayName = displayName;
-        this.emoji = emoji;
     }
 }

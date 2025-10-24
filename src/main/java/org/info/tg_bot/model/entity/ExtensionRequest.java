@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.info.tg_bot.model.enums.RequestStatus;
-
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -47,6 +47,12 @@ public class ExtensionRequest {
 
     @Column(name = "reviewer_comment", columnDefinition = "TEXT")
     private String reviewerComment;
+
+    @Column(name = "old_deadline")
+    private LocalDate oldDeadline;
+
+    @Column(name = "new_deadline")
+    private LocalDate newDeadline;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

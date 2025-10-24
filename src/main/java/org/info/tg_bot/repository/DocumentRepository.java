@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Repository
 public interface DocumentRepository extends JpaRepository<Document, Long> {
@@ -27,6 +28,13 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     @Query("SELECT d FROM Document d " +
             "LEFT JOIN FETCH d.uploadedBy " +
             "LEFT JOIN FETCH d.executor " +
+            "WHERE d.executionDate > :today " +
+            "AND d.status NOT IN :statuses")
+    List<Document> findByExecutionDateAfterAndStatusNotIn(LocalDate today, List<DocumentStatus> statuses);
+
+    @Query("SELECT d FROM Document d " +
+            "LEFT JOIN FETCH d.uploadedBy " +
+            "LEFT JOIN FETCH d.executor " +
             "WHERE d.executionDate < :today " +
             "AND d.status NOT IN :statuses")
     List<Document> findByExecutionDateBeforeAndStatusNotIn(LocalDate today, List<DocumentStatus> statuses);
@@ -39,4 +47,7 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     @EntityGraph(attributePaths = {"uploadedBy", "executor"})
     List<Document> findByUploadedByAndStatusOrderByCreatedAtDesc(User uploadedBy, DocumentStatus status);
 
+    @Query("SELECT d FROM Document d " +
+            "WHERE d.regNumber IN  :regNumbers")
+    List<Document> findByRegNumberIn(Set<String> regNumbers);
 }
