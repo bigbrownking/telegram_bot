@@ -6,6 +6,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.model.enums.UserRole;
+import org.info.tg_bot.util.EncryptionConverter;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -27,15 +28,18 @@ public class Document {
     private Long id;
 
     @Column(name = "registration_number")
+    @Convert(converter = EncryptionConverter.class)
     private String regNumber;
 
     @Column(name = "short_content")
+    @Convert(converter = EncryptionConverter.class)
     private String summary;
 
     @Column(name = "execution_date")
     private LocalDate executionDate;
 
     @Column(name = "structural_unit")
+    @Convert(converter = EncryptionConverter.class)
     private String department;
 
     @Enumerated(EnumType.STRING)

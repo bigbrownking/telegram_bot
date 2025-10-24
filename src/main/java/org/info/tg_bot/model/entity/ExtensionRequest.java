@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.info.tg_bot.model.enums.RequestStatus;
+import org.info.tg_bot.util.EncryptionConverter;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -32,6 +34,7 @@ public class ExtensionRequest {
     private LocalDateTime requestedDate;
 
     @Column(name = "reason", columnDefinition = "TEXT")
+    @Convert(converter = EncryptionConverter.class)
     private String reason;
 
     @Enumerated(EnumType.STRING)
@@ -46,6 +49,7 @@ public class ExtensionRequest {
     private LocalDateTime reviewedAt;
 
     @Column(name = "reviewer_comment", columnDefinition = "TEXT")
+    @Convert(converter = EncryptionConverter.class)
     private String reviewerComment;
 
     @Column(name = "old_deadline")

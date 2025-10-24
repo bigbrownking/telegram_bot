@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.info.tg_bot.model.enums.UserRole;
+import org.info.tg_bot.util.EncryptionConverter;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -27,6 +28,7 @@ public class User {
     private Long telegramId;
 
     @Column(name = "name")
+    @Convert(converter = EncryptionConverter.class)
     private String name;
 
     @Column(name = "telegram_username")
@@ -40,9 +42,11 @@ public class User {
     private Boolean isActive = true;
 
     @Column(name = "surname")
+    @Convert(converter = EncryptionConverter.class)
     private String surname;
 
     @Column(name = "fathername")
+    @Convert(converter = EncryptionConverter.class)
     private String fathername;
 
     @ManyToOne(fetch = FetchType.EAGER)

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.info.tg_bot.model.enums.ActionCategory;
+import org.info.tg_bot.util.EncryptionConverter;
 
 import java.time.LocalDateTime;
 
@@ -42,12 +43,15 @@ public class AuditLog {
     private String description;
 
     @Column(name = "old_data", columnDefinition = "JSONB")
+    @Convert(converter = EncryptionConverter.class)
     private String oldData;
 
     @Column(name = "new_data", columnDefinition = "JSONB")
+    @Convert(converter = EncryptionConverter.class)
     private String newData;
 
     @Column(name = "metadata", columnDefinition = "JSONB")
+    @Convert(converter = EncryptionConverter.class)
     private String metadata;
 
     @Column(name = "user_agent", columnDefinition = "text")

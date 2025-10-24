@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.info.tg_bot.model.enums.CancellationType;
 import org.info.tg_bot.model.enums.DocumentStatus;
+import org.info.tg_bot.util.EncryptionConverter;
 
 import java.time.LocalDateTime;
 
@@ -30,6 +31,7 @@ public class DocumentCancellation {
     private User cancelledBy;
 
     @Column(name = "cancellation_reason", columnDefinition = "TEXT")
+    @Convert(converter = EncryptionConverter.class)
     private String cancellationReason;
 
     @Enumerated(EnumType.STRING)
