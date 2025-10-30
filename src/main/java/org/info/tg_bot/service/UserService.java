@@ -94,8 +94,13 @@ public class UserService {
     }
 
     public void updateRegistrationBranch(Long telegramId, String branchInput) {
-        Branch branch = branchRepository.findByName(branchInput).orElseThrow();
-        registrationBuilders.get(telegramId).branch(branch);
+        if(branchInput.equals("—")){
+            registrationBuilders.get(telegramId).branch(null);
+        }
+        else {
+            Branch branch = branchRepository.findByName(branchInput).orElseThrow();
+            registrationBuilders.get(telegramId).branch(branch);
+        }
         registrationSteps.put(telegramId, "POSITION");
     }
 
@@ -283,25 +288,43 @@ public class UserService {
             log.warn("No user found for telegramId: {}", telegramId);
             return null;
         }
+
         User user = optUser.get();
         String positionName = user.getPosition().getName();
+        Long departmentId = user.getDepartment().getId();
+        Branch branch = user.getBranch();
+        Long branchId = (branch != null) ? branch.getId() : null;
+
         User boss;
+
         if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) || "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
-            boss = userRepository.findDepartmentBoss(user.getDepartment().getId())
-                    .orElse(null);
-        }
-        else if("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equals(positionName)){
+
+            boss = userRepository.findDepartmentBoss(departmentId).orElse(null);
+
+        } else if ("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equals(positionName)) {
             boss = userRepository.findVC().orElse(null);
+        } else {
+            if (branchId != null) {
+                boss = userRepository.findByDepartmentIdAndBranchIdAndPositionNameIn(
+                        departmentId,
+                        branchId,
+                        "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ",
+                        "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А"
+                ).orElse(null);
+            } else {
+                boss = userRepository.findUprBoss(departmentId).orElse(null);
+            }
         }
-        else{
-            boss = userRepository.findByDepartmentIdAndBranchIdAndPositionNameIn(user.getDepartment().getId(), user.getBranch().getId(),
-                            "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ", "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ_А")
-                    .orElse(null);
-        }
-        log.info("Boss for user {} (telegramId: {}) is {} (telegramId: {})", user.getFullName(), telegramId,
-                boss != null ? boss.getFullName() : "null", boss != null ? boss.getTelegramId() : "null");
+
+        log.info("Boss for user {} (telegramId: {}) is {} (telegramId: {})",
+                user.getFullName(),
+                telegramId,
+                boss != null ? boss.getFullName() : "null",
+                boss != null ? boss.getTelegramId() : "null");
+
         return boss;
     }
+
 
     public boolean isBoss(Long telegramId) {
         Optional<User> optUser = userRepository.findByTelegramId(telegramId);
@@ -323,28 +346,37 @@ public class UserService {
             log.warn("No boss found for telegramId: {}", bossTelegramId);
             return List.of();
         }
+
         User boss = bossOpt.get();
 
         String positionName = boss.getPosition().getName();
         Long departmentId = boss.getDepartment().getId();
-        Long branchId = boss.getBranch().getId();
+        Branch branch = boss.getBranch();
+        Long branchId = (branch != null) ? branch.getId() : null;
 
-        log.info("POSITION: {}, DEPARTMENT: {}, BRANCH: {}", positionName, departmentId, branchId);
+        List<User> supervisedUsers = List.of();
 
-        List<User> supervisedUsers;
         if ("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equals(positionName)) {
             supervisedUsers = userRepository.findSupervisedUsersByDepartment(departmentId);
             log.info("Found {} supervised users in department {} for boss {} (telegramId: {})",
                     supervisedUsers.size(), departmentId, boss.getFullName(), bossTelegramId);
-        } else if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) || "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
-            supervisedUsers = userRepository.findSupervisedUsersByDepartmentAndBranch(departmentId, branchId);
-            log.info("Found {} supervised users in branch {} for boss {} (telegramId: {})",
-                    supervisedUsers.size(), branchId, boss.getFullName(), bossTelegramId);
+
+        } else if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) ||
+                "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
+
+            if (branchId != null) {
+                supervisedUsers = userRepository.findSupervisedUsersByDepartmentAndBranch(departmentId, branchId);
+                log.info("Found {} supervised users in branch {} for boss {} (telegramId: {})",
+                        supervisedUsers.size(), branchId, boss.getFullName(), bossTelegramId);
+            } else {
+                supervisedUsers = userRepository.findSupervisedUsersByDepartment(departmentId);
+                log.info("Branch is null, returning supervised users only by department {}", departmentId);
+            }
         } else {
             log.warn("Unsupported boss position {} for telegramId: {}", positionName, bossTelegramId);
-            return List.of();
         }
 
         return supervisedUsers;
     }
+
 }

@@ -619,6 +619,9 @@ public class AdminCommandHandler {
                 request.getDocument().getExecutionDate(),
                 request.getReason() != null ? request.getReason() : "—"
         );
+        Document document = request.getDocument();
+        document.setStatus(DocumentStatus.IN_PROGRESS);
+        documentService.save(document);
 
         SendMessage sendMessage = new SendMessage(chatId.toString(), message);
         sendMessage.enableHtml(true);

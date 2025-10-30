@@ -54,7 +54,7 @@ public class User {
     private Department department;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "branch_id", nullable = false)
+    @JoinColumn(name = "branch_id")
     private Branch branch;
 
     @ManyToOne(fetch = FetchType.EAGER)

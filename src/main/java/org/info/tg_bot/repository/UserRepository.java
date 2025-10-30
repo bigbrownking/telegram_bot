@@ -15,6 +15,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findBySurnameIgnoreCase(String surname);
     @Query("SELECT u FROM User u WHERE u.department.id = :depId AND u.position.name = 'РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА' AND u.isActive = true")
     Optional<User> findDepartmentBoss(Long depId);
+
+    @Query("SELECT u FROM User u WHERE u.department.id = :depId AND u.position.name = 'РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ' AND u.isActive = true")
+    Optional<User> findUprBoss(Long depId);
+
     @Query("SELECT u FROM User u WHERE u.position.name = 'ЗАМЕСТИТЕЛЬ ПРЕДСЕДАТЕЛЯ' AND u.isActive = true")
     Optional<User> findVC();
     Optional<User> findByDepartmentIdAndBranchIdAndPositionNameIn(Long departmentId, Long branchId, String... positionNames);

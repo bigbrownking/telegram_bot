@@ -81,22 +81,30 @@ public class UserCommandHandler {
 
         switch (currentStep) {
             case "DEPARTMENT" -> {
+                Department department;
+
                 if (data.startsWith("dept:")) {
                     Long id = Long.parseLong(data.substring(5));
-                    Department department = departmentRepository.findById(id)
+                    department = departmentRepository.findById(id)
                             .orElseThrow(() -> new RuntimeException("Department not found"));
-                    userService.updateRegistrationDepartment(telegramId, department.getName());
-                    return createBranchInlineKeyboard(chatId, 0);
                 } else if (data.startsWith("page:")) {
                     int page = Integer.parseInt(data.substring(5));
                     return createDepartmentInlineKeyboard(chatId, page);
                 } else {
-                    Department department = departmentRepository.findByName(data)
+                    department = departmentRepository.findByName(data)
                             .orElseThrow(() -> new RuntimeException("Department not found"));
-                    userService.updateRegistrationDepartment(telegramId, department.getName());
-                    return createBranchInlineKeyboard(chatId, 0);
                 }
+
+                userService.updateRegistrationDepartment(telegramId, department.getName());
+
+                if (department.getName().contains("УПРАВЛЕНИЕ")) {
+                    userService.updateRegistrationBranch(telegramId, "—");
+                    return createPositionInlineKeyboard(chatId, 0);
+                }
+
+                return createBranchInlineKeyboard(chatId, 0);
             }
+
             case "BRANCH" -> {
                 if (data.startsWith("branch:")) {
                     Long id = Long.parseLong(data.substring(7));

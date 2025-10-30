@@ -13,6 +13,7 @@ import org.info.tg_bot.model.enums.DocumentStatus;
 import org.info.tg_bot.repository.DocumentRepository;
 import org.info.tg_bot.repository.TempDocumentRepository;
 import org.info.tg_bot.repository.UserRepository;
+import org.info.tg_bot.util.EncryptionUtil;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
@@ -34,6 +35,7 @@ public class DocumentParserService {
     private final DocumentRepository documentRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final EncryptionUtil encryptionUtil;
     private final ExecutionResultService executionResultService;
 
 
@@ -403,7 +405,7 @@ public class DocumentParserService {
         }
     }
 
-    private User findUserByShortName(String shortName) {
+    private User findUserByShortName(String shortName) throws Exception {
         if (shortName == null || shortName.isBlank()) return null;
 
         String[] parts = shortName.split("\\s+");
@@ -419,8 +421,11 @@ public class DocumentParserService {
             if (matcher.group(2) != null) fatherInitial = matcher.group(2).toUpperCase();
         }
 
+        surname = encryptionUtil.encrypt(surname);
+
         List<User> candidates = userRepository.findBySurnameIgnoreCase(surname);
         for (User user : candidates) {
+            log.info("USer is :{}", user.getSurname());
             boolean nameMatch = nameInitial == null || user.getName().toUpperCase().startsWith(nameInitial);
             boolean fatherMatch = fatherInitial == null || user.getFathername().toUpperCase().startsWith(fatherInitial);
             if (nameMatch && fatherMatch) {
