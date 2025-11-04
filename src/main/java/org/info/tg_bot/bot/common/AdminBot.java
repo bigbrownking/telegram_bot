@@ -9,11 +9,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.ActionType;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.send.SendChatAction;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
-import org.telegram.telegrambots.meta.api.objects.Message;
-import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.*;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -75,224 +76,275 @@ public class AdminBot extends TelegramLongPollingBot {
 
             if (telegramId == null || chatId == null) return;
 
-            Optional<User> user = userService.findByTelegramId(telegramId);
-            if (user.isEmpty() || !user.get().isAdmin()) {
-                SendMessage response = new SendMessage(chatId.toString(), "🚫 У вас нет доступа к этому боту.");
-                sendAndTrack(chatId, telegramId, response);
+            Optional<User> userOpt = userService.findByTelegramId(telegramId);
+            if (userOpt.isEmpty() || !userOpt.get().isAdmin()) {
+                sendAndTrack(chatId, telegramId, new SendMessage(chatId.toString(), "У вас нет доступа к этому боту."));
                 return;
             }
 
-            // ======================================================
-            // ✅ Обработка callback-запросов
-            // ======================================================
+            // CALLBACK
             if (update.hasCallbackQuery()) {
-                String callbackData = update.getCallbackQuery().getData();
-                String callbackQueryId = update.getCallbackQuery().getId();
-
-                if (callbackData.startsWith("approve_extend:")) {
-                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
-                    SendMessage response = adminCommandHandler.handleApproveExtendRequest(chatId, requestId, telegramId);
-                    sendAndTrack(chatId, telegramId, response);
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
-                if (callbackData.startsWith("reject_extend:")) {
-                    Long requestId = Long.parseLong(callbackData.split(":")[1]);
-                    SendMessage response = adminCommandHandler.handleRejectExtendRequest(chatId, requestId, telegramId);
-                    sendAndTrack(chatId, telegramId, response);
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
-                if (callbackData.startsWith("close_without_execution:")) {
-                    String regNumber = callbackData.split(":")[1];
-
-                    InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
-                    List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-
-                    for (CancellationType type : CancellationType.values()) {
-                        InlineKeyboardButton button = new InlineKeyboardButton();
-                        button.setText(type.getDisplayName());
-                        button.setCallbackData("cancel_reason:" + regNumber + ":" + type.name());
-                        rows.add(List.of(button));
-                    }
-
-                    keyboard.setKeyboard(rows);
-
-                    SendMessage response = new SendMessage(
-                            chatId.toString(),
-                            "❓ Выберите причину закрытия поручения №" + regNumber + ":"
-                    );
-                    response.setReplyMarkup(keyboard);
-                    sendAndTrack(chatId, telegramId, response);
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
-                if (callbackData.startsWith("cancel_reason:")) {
-                    String[] parts = callbackData.split(":");
-                    String regNumber = parts[1];
-                    CancellationType type = CancellationType.valueOf(parts[2]);
-
-                    if (type == CancellationType.OTHER) {
-                        userService.setPendingCancellation(chatId, regNumber, type.name());
-                        SendMessage response = new SendMessage(
-                                chatId.toString(),
-                                "✏ Пожалуйста, введите причину закрытия поручения №" + regNumber + ":"
-                        );
-                        sendAndTrack(chatId, telegramId, response);
-                        execute(new AnswerCallbackQuery(callbackQueryId));
-                    } else {
-                        SendMessage response = adminCommandHandler.handleCloseWithoutExecution(
-                                chatId, regNumber, telegramId, type, type.getDisplayName()
-                        );
-                        sendAndTrack(chatId, telegramId, response);
-                        execute(new AnswerCallbackQuery(callbackQueryId));
-                    }
-                    return;
-                }
-
-                if (callbackData.startsWith("task_completed:")) {
-                    String regNumber = callbackData.split(":")[1];
-                    SendMessage response = adminCommandHandler.handleTaskCompleted(chatId, regNumber, telegramId, null);
-                    sendAndTrack(chatId, telegramId, response);
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
-                if (callbackData.startsWith("send_for_revision:")) {
-                    String regNumber = callbackData.split(":")[1];
-                    SendMessage response = adminCommandHandler.handleSendForRevision(chatId, regNumber, telegramId);
-                    sendAndTrack(chatId, telegramId, response);
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
-                if (callbackData.startsWith("tasks_filter:")) {
-                    String statusFilter = callbackData.substring("tasks_filter:".length());
-                    SendMessage response = adminCommandHandler.handleTasksFilter(chatId, telegramId, statusFilter);
-                    sendAndTrack(chatId, telegramId, response);
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-
-                if (callbackData.equals("tasks_back")) {
-                    SendMessage response = adminCommandHandler.handleTasksCommand(chatId, telegramId, null);
-                    sendAndTrack(chatId, telegramId, response);
-                    execute(new AnswerCallbackQuery(callbackQueryId));
-                    return;
-                }
-            }
-
-            // ======================================================
-            // ✅ Обработка текстовых сообщений
-            // ======================================================
-            if (update.hasMessage() && update.getMessage().hasText()) {
-                String text = update.getMessage().getText().trim();
-                String username = update.getMessage().getFrom().getUserName();
-
-                // Обработка номера документа для отмены
-                if (userService.isWaitingForCancelDocumentNumber(telegramId)) {
-                    SendMessage response = adminCommandHandler.handleCancelDocumentNumberInput(chatId, telegramId, text);
-                    sendAndTrack(chatId, telegramId, response);
-                    return;
-                }
-
-                // Обработка причины отмены
-                if (userService.isWaitingForCancellationReason(chatId)) {
-                    SendMessage response = adminCommandHandler.handleCancelReasonInput(chatId, telegramId, text);
-                    sendAndTrack(chatId, telegramId, response);
-                    return;
-                }
-
-                // Обработка причины доработки
-                if (userService.isWaitingForRevisionReason(telegramId)) {
-                    SendMessage response = adminCommandHandler.handleRevisionReasonInput(chatId, telegramId, text);
-                    sendAndTrack(chatId, telegramId, response);
-                    return;
-                }
-
-                // Обработка даты
-                if (userService.isWaitingForNewDate(telegramId)) {
-                    SendMessage response = adminCommandHandler.handleNewExecutionDate(chatId, telegramId, text);
-                    sendAndTrack(chatId, telegramId, response);
-                    return;
-                }
-
-                // Обработка обратной связи при завершении
-                if (userService.isWaitingForCompletionFeedback(telegramId)) {
-                    Optional<String> regNumberOpt = userService.consumeWaitingForCompletionFeedback(telegramId);
-                    if (regNumberOpt.isPresent()) {
-                        SendMessage response = adminCommandHandler.handleTaskCompleted(chatId, regNumberOpt.get(), telegramId, text);
-                        sendAndTrack(chatId, telegramId, response);
-                        return;
-                    }
-                }
-
-                // Обработка команд
-                SendMessage response;
-                if (text.startsWith("/tasks")) {
-                    String regNumber = text.contains(" ") ? text.substring(text.indexOf(" ") + 1).trim() : null;
-                    response = adminCommandHandler.handleTasksCommand(chatId, telegramId, regNumber);
-                } else {
-                    response = switch (text) {
-                        case "/start" -> adminCommandHandler.handleStartCommand(chatId, telegramId, username);
-                        case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
-                        case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
-                        case "/pending" -> adminCommandHandler.handlePendingRequests(chatId, telegramId);
-                        case "/cancel" -> adminCommandHandler.handleCancelCommand(chatId, telegramId);
-                        default -> new SendMessage(chatId.toString(),
-                                "❓ Команда не распознана. Используйте /help для списка доступных команд.");
-                    };
-                }
-                sendAndTrack(chatId, telegramId, response);
+                handleCallback(update, chatId, telegramId);
                 return;
             }
 
-            // Обработка загрузки документов
+
+            // TEXT
+            if (update.hasMessage() && update.getMessage().hasText()) {
+                handleTextMessage(update, chatId, telegramId);
+                return;
+            }
+
+            // FILE
             if (update.hasMessage() && update.getMessage().hasDocument()) {
-                String fileName = update.getMessage().getDocument().getFileName();
-                String fileId = update.getMessage().getDocument().getFileId();
-                SendMessage response = adminCommandHandler.handleExcelUpload(chatId, telegramId, fileName, fileId, this);
-                sendAndTrack(chatId, telegramId, response);
+                handleFileUpload(update, chatId, telegramId);
+                return;
             }
 
         } catch (TelegramApiException e) {
-            log.error("Error sending message: {}", e.getMessage(), e);
+            log.error("Telegram API error: {}", e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error: {}", e.getMessage(), e);
+            log.error("Unexpected error in AdminBot: {}", e.getMessage(), e);
         }
+    }
+
+    private void handleCallback(Update update, Long chatId, Long telegramId) throws TelegramApiException {
+        CallbackQuery callback = update.getCallbackQuery();
+        String callbackData = callback.getData();
+        String callbackQueryId = callback.getId();
+        Integer callbackMessageId = callback.getMessage().getMessageId();
+
+        deleteMessageSilently(chatId, callbackMessageId);
+
+        deletePreviousMessage(chatId, telegramId);
+
+        SendMessage response;
+
+        // --- Одобрение/отклонение ---
+        if (callbackData.startsWith("approve_extend:")) {
+            Long requestId = Long.parseLong(callbackData.split(":")[1]);
+            response = adminCommandHandler.handleApproveExtendRequest(chatId, requestId, telegramId);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        if (callbackData.startsWith("reject_extend:")) {
+            Long requestId = Long.parseLong(callbackData.split(":")[1]);
+            response = adminCommandHandler.handleRejectExtendRequest(chatId, requestId, telegramId);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        // --- Закрытие без исполнения ---
+        if (callbackData.startsWith("close_without_execution:")) {
+            String regNumber = callbackData.split(":")[1];
+            response = createCancellationTypeKeyboard(chatId, regNumber);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        if (callbackData.equals("cancel_operation")) {
+            userService.clearWaitingForCancelDocumentNumber(telegramId);
+            userService.clearPendingCancellation(telegramId);
+            userService.clearPendingCancellation(chatId);
+            response = new SendMessage(chatId.toString(), "Операция отменена. Вы вернулись в главное меню.");
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        if (callbackData.startsWith("cancel_reason:")) {
+            String[] parts = callbackData.split(":");
+            String regNumber = parts[1];
+            CancellationType type = CancellationType.valueOf(parts[2]);
+
+            if (type == CancellationType.OTHER) {
+                userService.setPendingCancellation(chatId, regNumber, type.name());
+                response = new SendMessage(chatId.toString(),
+                        "Пожалуйста, введите причину закрытия поручения №" + regNumber + ":");
+                sendAndTrack(chatId, telegramId, response);
+            } else {
+                response = adminCommandHandler.handleCloseWithoutExecution(
+                        chatId, regNumber, telegramId, type, type.getDisplayName());
+                sendAndTrack(chatId, telegramId, response);
+            }
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        // --- Завершение ---
+        if (callbackData.startsWith("task_completed:")) {
+            String regNumber = callbackData.split(":")[1];
+            response = adminCommandHandler.handleTaskCompleted(chatId, regNumber, telegramId, null);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        // --- Доработка ---
+        if (callbackData.startsWith("send_for_revision:")) {
+            String regNumber = callbackData.split(":")[1];
+            response = adminCommandHandler.handleSendForRevision(chatId, regNumber, telegramId);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        // --- Фильтр задач ---
+        if (callbackData.startsWith("tasks_filter:")) {
+            String statusFilter = callbackData.substring("tasks_filter:".length());
+            response = adminCommandHandler.handleTasksFilter(chatId, telegramId, statusFilter);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        if (callbackData.equals("tasks_back")) {
+            response = adminCommandHandler.handleTasksCommand(chatId, telegramId, null);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        // Неизвестный callback
+        response = new SendMessage(chatId.toString(), "Неизвестное действие.");
+        sendAndTrack(chatId, telegramId, response);
+        execute(new AnswerCallbackQuery(callbackQueryId));
+    }
+
+
+    private void handleTextMessage(Update update, Long chatId, Long telegramId) throws TelegramApiException {
+        String text = update.getMessage().getText().trim();
+        String username = update.getMessage().getFrom().getUserName();
+
+        deletePreviousMessage(chatId, telegramId);
+
+        SendMessage response;
+
+        // --- Ожидание номера для отмены ---
+        if (userService.isWaitingForCancelDocumentNumber(telegramId)) {
+            response = adminCommandHandler.handleCancelDocumentNumberInput(chatId, telegramId, text);
+            sendAndTrack(chatId, telegramId, response);
+            return;
+        }
+
+        // --- Причина отмены ---
+        if (userService.isWaitingForCancellationReason(chatId)) {
+            response = adminCommandHandler.handleCancelReasonInput(chatId, telegramId, text);
+            sendAndTrack(chatId, telegramId, response);
+            return;
+        }
+
+        // --- Причина доработки ---
+        if (userService.isWaitingForRevisionReason(telegramId)) {
+            response = adminCommandHandler.handleRevisionReasonInput(chatId, telegramId, text);
+            sendAndTrack(chatId, telegramId, response);
+            return;
+        }
+
+        // --- Новая дата ---
+        if (userService.isWaitingForNewDate(telegramId)) {
+            response = adminCommandHandler.handleNewExecutionDate(chatId, telegramId, text);
+            sendAndTrack(chatId, telegramId, response);
+            return;
+        }
+
+        // --- Обратная связь при завершении ---
+        if (userService.isWaitingForCompletionFeedback(telegramId)) {
+            Optional<String> regNumberOpt = userService.consumeWaitingForCompletionFeedback(telegramId);
+            if (regNumberOpt.isPresent()) {
+                response = adminCommandHandler.handleTaskCompleted(chatId, regNumberOpt.get(), telegramId, text);
+                sendAndTrack(chatId, telegramId, response);
+                return;
+            }
+        }
+
+        // --- Команды ---
+        if (text.startsWith("/tasks")) {
+            String regNumber = text.contains(" ") ? text.substring(text.indexOf(" ") + 1).trim() : null;
+            response = adminCommandHandler.handleTasksCommand(chatId, telegramId, regNumber);
+        } else {
+            response = switch (text) {
+                case "/start" -> adminCommandHandler.handleStartCommand(chatId, telegramId, username);
+                case "/help" -> adminCommandHandler.handleHelpCommand(chatId);
+                case "/upload" -> adminCommandHandler.handleUploadCommand(chatId);
+                case "/pending" -> adminCommandHandler.handlePendingRequests(chatId, telegramId);
+                case "/cancel" -> adminCommandHandler.handleCancelCommand(chatId, telegramId);
+                default -> new SendMessage(chatId.toString(),
+                        "Команда не распознана. Используйте /help.");
+            };
+        }
+        sendAndTrack(chatId, telegramId, response);
+    }
+
+    private void handleFileUpload(Update update, Long chatId, Long telegramId) throws TelegramApiException {
+        deletePreviousMessage(chatId, telegramId);
+
+        String fileName = update.getMessage().getDocument().getFileName();
+        String fileId = update.getMessage().getDocument().getFileId();
+
+        SendMessage response = adminCommandHandler.handleExcelUpload(chatId, telegramId, fileName, fileId, this);
+        sendAndTrack(chatId, telegramId, response);
     }
 
     private void deletePreviousMessage(Long chatId, Long telegramId) {
         Integer lastMsgId = userService.getLastMessageId(telegramId);
         if (lastMsgId != null) {
-            try {
-                DeleteMessage deleteMessage = new DeleteMessage(chatId.toString(), lastMsgId);
-                execute(deleteMessage);
-                log.info("🗑 Successfully deleted previous message {} for user {}", lastMsgId, telegramId);
-                userService.setLastMessageId(telegramId, null);
-            } catch (TelegramApiException e) {
-                log.info("⚠ Failed to delete message {} for user {}: {}", lastMsgId, telegramId, e.getMessage(), e);
-            }
-        } else {
-            log.info("ℹ No previous message to delete for telegramId {}", telegramId);
+            deleteMessageSilently(chatId, lastMsgId);
+            userService.setLastMessageId(telegramId, null);
+        }
+    }
+
+    private void deleteMessageSilently(Long chatId, Integer messageId) {
+        try {
+            execute(new DeleteMessage(chatId.toString(), messageId));
+            log.info("Deleted message {} in chat {}", messageId, chatId);
+        } catch (TelegramApiException e) {
+            log.warn("Failed to delete message {}: {}", messageId, e.getMessage());
         }
     }
 
     private void sendAndTrack(Long chatId, Long telegramId, SendMessage response) throws TelegramApiException {
         if (response == null) {
-            log.info("⚠ No response to send for telegramId {}", telegramId);
+            log.warn("No response to send for telegramId {}", telegramId);
             return;
+        }
+        SendChatAction action = new SendChatAction();
+        action.setChatId(chatId);
+        action.setAction(ActionType.TYPING);
+        execute(action);
+
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
         deletePreviousMessage(chatId, telegramId);
         Message sent = execute(response);
         if (sent != null && sent.getMessageId() != null) {
             userService.setLastMessageId(telegramId, sent.getMessageId());
-            log.info("💬 Successfully sent message {} to telegramId {}", sent.getMessageId(), telegramId);
-        } else {
-            log.info("⚠ Failed to retrieve messageId after sending to telegramId {}", telegramId);
+            log.info("Sent message {} to telegramId {}", sent.getMessageId(), telegramId);
         }
+    }
+
+    private SendMessage createCancellationTypeKeyboard(Long chatId, String regNumber) {
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        for (CancellationType type : CancellationType.values()) {
+            InlineKeyboardButton button = new InlineKeyboardButton(type.getDisplayName());
+            button.setCallbackData("cancel_reason:" + regNumber + ":" + type.name());
+            rows.add(List.of(button));
+        }
+
+        keyboard.setKeyboard(rows);
+
+        SendMessage message = new SendMessage(chatId.toString(),
+                "Выберите причину закрытия поручения №" + regNumber + ":");
+        message.setReplyMarkup(keyboard);
+        return message;
     }
 }

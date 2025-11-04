@@ -33,9 +33,7 @@ public class Scheduler {
     private final UserService userService;
     private final NotificationService notificationService;
     private final TempDocumentRepository tempDocumentRepository;
-    private final DocumentRepository documentRepository;
     private final AuditLogService auditLogService;
-    private final ExecutionResultService executionResultService;
 
     @Scheduled(cron = "${scheduler.overdue-check.cron}")
     public void checkOverdueDocuments() {
@@ -190,6 +188,10 @@ public class Scheduler {
                     Map.of("clearedCount", 0L)
             );
         }
+    }
+    @Scheduled(cron = "0 * * * * ?")
+    public void clearStaleWaits() {
+        userService.clearStaleWaits(600_00);
     }
 
     private String getDaysWord(long days) {

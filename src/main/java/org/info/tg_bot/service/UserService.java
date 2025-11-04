@@ -2,21 +2,27 @@ package org.info.tg_bot.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.info.tg_bot.bot.common.UserBot;
 import org.info.tg_bot.model.entity.Branch;
 import org.info.tg_bot.model.entity.Department;
 import org.info.tg_bot.model.entity.Position;
 import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.model.enums.UserRole;
-import org.info.tg_bot.repository.BranchRepository;
-import org.info.tg_bot.repository.DepartmentRepository;
-import org.info.tg_bot.repository.PositionRepository;
-import org.info.tg_bot.repository.UserRepository;
+import org.info.tg_bot.repository.*;
+import org.info.tg_bot.util.EncryptionUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.meta.generics.TelegramBot;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
@@ -24,9 +30,17 @@ import java.util.Optional;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final AuditLogRepository auditLogRepository;
     private final DepartmentRepository departmentRepository;
     private final PositionRepository positionRepository;
     private final BranchRepository branchRepository;
+    private final EncryptionUtil encryptionUtil;
+    private UserBot userBot;
+
+    @Autowired
+    public void setUserBot(@Lazy UserBot userBot) {
+        this.userBot = userBot;
+    }
 
     // === Регистрация ===
     private final Map<Long, String> registrationSteps = new HashMap<>();
@@ -70,6 +84,9 @@ public class UserService {
         userRepository.save(user);
     }
 
+    // === НОВОЕ: Время начала ожидания ===
+    private final Map<Long, Long> waitingTimestamps = new ConcurrentHashMap<>();
+
     // ======================================================
     // ✅ Регистрация пользователя
     // ======================================================
@@ -94,12 +111,13 @@ public class UserService {
     }
 
     public void updateRegistrationBranch(Long telegramId, String branchInput) {
-        if(branchInput.equals("—")){
-            registrationBuilders.get(telegramId).branch(null);
-        }
-        else {
-            Branch branch = branchRepository.findByName(branchInput).orElseThrow();
-            registrationBuilders.get(telegramId).branch(branch);
+        User.UserBuilder builder = registrationBuilders.get(telegramId);
+        if (branchInput == null || branchInput.equals("—")) {
+            builder.branch(null);
+        } else {
+            Branch branch = branchRepository.findByName(branchInput)
+                    .orElseThrow(() -> new RuntimeException("Branch not found: " + branchInput));
+            builder.branch(branch);
         }
         registrationSteps.put(telegramId, "POSITION");
     }
@@ -120,13 +138,25 @@ public class UserService {
         registrationSteps.put(telegramId, "FATHERNAME");
     }
 
-    public void completeRegistration(Long telegramId, String fathername) {
+    public void completeRegistration(Long telegramId, String fatherName) {
         User.UserBuilder builder = registrationBuilders.get(telegramId);
-        builder.fathername(fathername.trim());
+        if (builder == null) {
+            throw new IllegalStateException("No registration data found for telegramId: " + telegramId);
+        }
+
+        if (fatherName != null && !fatherName.trim().isEmpty()) {
+            builder.fathername(fatherName.trim());
+        } else {
+            builder.fathername(null);
+        }
+
         User user = builder.build();
         userRepository.save(user);
+
         registrationSteps.remove(telegramId);
         registrationBuilders.remove(telegramId);
+
+        log.info("✅ User registered: {} (telegramId: {})", user.getFullName(), telegramId);
     }
 
     // ======================================================
@@ -279,6 +309,36 @@ public class UserService {
         waitingForExtensionReason.remove(telegramId);
     }
 
+    public void clearStaleWaits(long timeoutMs) {
+        long now = System.currentTimeMillis();
+        waitingTimestamps.entrySet().removeIf(entry -> {
+            Long telegramId = entry.getKey();
+            Long timestamp = entry.getValue();
+
+            if (now - timestamp > timeoutMs) {
+                log.info("Clearing stale state for user telegramId={}", telegramId);
+
+                // Сбрасываем все возможные ожидания
+                clearWaitingForTaskNumber(telegramId);
+                clearWaitingForFile(telegramId);
+                clearWaitingForCancelDocumentNumber(telegramId);
+                clearPendingCancellation(telegramId);
+                clearWaitingForNewDate(telegramId);
+                clearWaitingForRevisionReason(telegramId);
+                clearWaitingForCompletionFeedback(telegramId);
+                clearWaitingForExtensionReason(telegramId);
+
+                // Удаляем сообщение, если оно ещё висит
+                Integer msgId = getLastMessageId(telegramId);
+                if (msgId != null) {
+                    setLastMessageId(telegramId, null);
+                }
+
+                return true; // Удаляем из timestamps
+            }
+            return false;
+        });
+    }
     public User getVC(){
         return userRepository.findVC().orElse(null);
     }
@@ -377,6 +437,45 @@ public class UserService {
         }
 
         return supervisedUsers;
+    }
+
+    public String getAllUsernames() {
+        return userRepository.findAll().stream()
+                .map(User::getFullName)
+                .filter(name -> !name.trim().isEmpty())
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+    @Transactional
+    public String deleteUserByName(String name, String surname, String fathername) {
+        Optional<User> userOpt = userRepository.findByFullName(name, surname, fathername);
+        if (userOpt.isEmpty()) {
+            return "User not found.";
+        }
+
+        User user = userOpt.get();
+        Long telegramId = user.getTelegramId();
+
+        try {
+            SendMessage message = new SendMessage(
+                    telegramId.toString(),
+                    "Ваша регистрация была удалена администратором.\n" +
+                            "Причина: некорректные данные.\n" +
+                            "Пожалуйста, начните регистрацию заново с помощью /start."
+            );
+            userBot.execute(message);
+        } catch (TelegramApiException e) {
+            log.warn("Failed to notify user {} about deletion: {}", telegramId, e.getMessage());
+        }
+
+
+        auditLogRepository.deleteByUserId(user.getId());
+        userRepository.delete(user);
+
+        Optional<User> again = userRepository.findByFullName(name, surname, fathername);
+        if (again.isEmpty()) {
+            return "User deleted and notified successfully.";
+        }
+        return "User deleted, but verification failed.";
     }
 
 }

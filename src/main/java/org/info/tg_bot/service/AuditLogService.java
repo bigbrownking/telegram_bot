@@ -42,6 +42,7 @@ public class AuditLogService {
         String newDataJson = serializeToJson(newData);
         String metadataJson = serializeToJson(meta);
 
+
         AuditLog auditLog = AuditLog.builder()
                 .user(user)
                 .actionType(actionType)
@@ -53,7 +54,7 @@ public class AuditLogService {
                 .newData(newDataJson)
                 .metadata(metadataJson)
                 .userAgent(userAgent)
-                .telegramUsername(telegramUsername)
+                .telegramUsername(telegramUsername!=null ? telegramUsername : "-")
                 .success(success)
                 .errorMessage(errorMessage)
                 .build();

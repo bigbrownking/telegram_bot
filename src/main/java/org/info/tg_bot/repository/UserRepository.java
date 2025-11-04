@@ -4,6 +4,7 @@ import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.model.enums.UserRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -32,4 +33,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
             "AND u.position.name NOT IN ('РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА') " +
             "AND u.isActive = true")
     List<User> findSupervisedUsersByDepartment(Long departmentId);
+
+    @Query("SELECT u FROM User u WHERE u.name = :name AND u.surname = :surname " +
+            "AND (:fathername IS NULL AND u.fathername IS NULL OR u.fathername = :fathername)")
+    Optional<User> findByFullName(@Param("name") String name,
+                                  @Param("surname") String surname,
+                                  @Param("fathername") String fathername);
 }

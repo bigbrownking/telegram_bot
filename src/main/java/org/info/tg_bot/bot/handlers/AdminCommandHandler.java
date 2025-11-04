@@ -95,7 +95,21 @@ public class AdminCommandHandler {
 
     public SendMessage handleCancelCommand(Long chatId, Long adminTelegramId) {
         userService.setWaitingForCancelDocumentNumber(adminTelegramId, true);
-        return new SendMessage(chatId.toString(), "📝 Введите регистрационный номер документа для отмены:");
+
+        SendMessage message = new SendMessage(chatId.toString(),
+                "Введите регистрационный номер документа для отмены:");
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        InlineKeyboardButton cancelBtn = new InlineKeyboardButton("Отменить операцию");
+        cancelBtn.setCallbackData("cancel_operation");
+        rows.add(List.of(cancelBtn));
+
+        markup.setKeyboard(rows);
+        message.setReplyMarkup(markup);
+
+        return message;
     }
 
     public SendMessage handleCancelDocumentNumberInput(Long chatId, Long adminTelegramId, String regNumber) {
@@ -117,9 +131,20 @@ public class AdminCommandHandler {
 
         userService.clearWaitingForCancelDocumentNumber(adminTelegramId);
         userService.setPendingCancellation(adminTelegramId, regNumber, CancellationType.OTHER.name());
+        SendMessage message = new SendMessage(chatId.toString(),
+                "Пожалуйста, укажите причину отмены документа №" + regNumber + ":");
 
-        return new SendMessage(chatId.toString(),
-                "💬 Пожалуйста, укажите причину отмены документа №" + regNumber + ":");
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        InlineKeyboardButton cancelBtn = new InlineKeyboardButton("Отменить операцию");
+        cancelBtn.setCallbackData("cancel_operation");
+        rows.add(List.of(cancelBtn));
+
+        markup.setKeyboard(rows);
+        message.setReplyMarkup(markup);
+
+        return message;
     }
 
     public SendMessage handleCancelReasonInput(Long chatId, Long adminTelegramId, String reason) {

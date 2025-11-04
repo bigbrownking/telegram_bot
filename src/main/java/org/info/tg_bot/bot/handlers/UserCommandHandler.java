@@ -79,30 +79,23 @@ public class UserCommandHandler {
 
         data = data == null ? "" : data.strip();
 
-        switch (currentStep) {
+        return switch (currentStep) {
             case "DEPARTMENT" -> {
-                Department department;
-
                 if (data.startsWith("dept:")) {
                     Long id = Long.parseLong(data.substring(5));
-                    department = departmentRepository.findById(id)
+                    Department dept = departmentRepository.findById(id)
                             .orElseThrow(() -> new RuntimeException("Department not found"));
+                    userService.updateRegistrationDepartment(telegramId, dept.getName());
+                    yield createBranchInlineKeyboard(chatId, 0);
                 } else if (data.startsWith("page:")) {
                     int page = Integer.parseInt(data.substring(5));
-                    return createDepartmentInlineKeyboard(chatId, page);
+                    yield createDepartmentInlineKeyboard(chatId, page);
                 } else {
-                    department = departmentRepository.findByName(data)
+                    Department dept = departmentRepository.findByName(data)
                             .orElseThrow(() -> new RuntimeException("Department not found"));
+                    userService.updateRegistrationDepartment(telegramId, dept.getName());
+                    yield createBranchInlineKeyboard(chatId, 0);
                 }
-
-                userService.updateRegistrationDepartment(telegramId, department.getName());
-
-                if (department.getName().contains("УПРАВЛЕНИЕ")) {
-                    userService.updateRegistrationBranch(telegramId, "—");
-                    return createPositionInlineKeyboard(chatId, 0);
-                }
-
-                return createBranchInlineKeyboard(chatId, 0);
             }
 
             case "BRANCH" -> {
@@ -110,68 +103,83 @@ public class UserCommandHandler {
                     Long id = Long.parseLong(data.substring(7));
                     Branch branch = branchRepository.findById(id)
                             .orElseThrow(() -> new RuntimeException("Branch not found"));
-                    userService.updateRegistrationBranch(telegramId, branch.getName());
-                    return createPositionInlineKeyboard(chatId, 0);
+                    String branchName = branch.getName().equals("ПРОПУСТИТЬ") ? "—" : branch.getName();
+                    userService.updateRegistrationBranch(telegramId, branchName);
+                    yield createPositionInlineKeyboard(chatId, 0);
                 } else if (data.startsWith("branchpage:")) {
                     int page = Integer.parseInt(data.substring(11));
-                    return createBranchInlineKeyboard(chatId, page);
+                    yield createBranchInlineKeyboard(chatId, page);
                 } else {
                     Branch branch = branchRepository.findByName(data)
                             .orElseThrow(() -> new RuntimeException("Branch not found"));
-                    userService.updateRegistrationBranch(telegramId, branch.getName());
-                    return createPositionInlineKeyboard(chatId, 0);
+                    userService.updateRegistrationBranch(telegramId, branch.getId() == 47L ? null : branch.getName());
+                    yield createPositionInlineKeyboard(chatId, 0);
                 }
             }
+
             case "POSITION" -> {
                 if (data.startsWith("pos:")) {
                     Long id = Long.parseLong(data.substring(4));
-                    Position position = positionRepository.findById(id)
+                    Position pos = positionRepository.findById(id)
                             .orElseThrow(() -> new RuntimeException("Position not found"));
-                    userService.updateRegistrationPosition(telegramId, position.getName());
-                    return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя как в удостоверении:");
+                    userService.updateRegistrationPosition(telegramId, pos.getName());
                 } else if (data.startsWith("pospage:")) {
                     int page = Integer.parseInt(data.substring(8));
-                    return createPositionInlineKeyboard(chatId, page);
+                    yield createPositionInlineKeyboard(chatId, page);
                 } else {
-                    Position position = positionRepository.findByName(data)
+                    Position pos = positionRepository.findByName(data)
                             .orElseThrow(() -> new RuntimeException("Position not found"));
-                    userService.updateRegistrationPosition(telegramId, position.getName());
-                    return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя как в удостоверении:");
+                    userService.updateRegistrationPosition(telegramId, pos.getName());
                 }
+                yield new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя как в удостоверении:");
             }
+
             case "NAME" -> {
+                if (data.isBlank()) {
+                    yield new SendMessage(chatId.toString(), "Имя не может быть пустым. Введите ещё раз:");
+                }
                 userService.updateRegistrationName(telegramId, data);
-                return new SendMessage(chatId.toString(), "Пожалуйста, введите вашу фамилию как в удостоверении:");
+                yield new SendMessage(chatId.toString(), "Пожалуйста, введите вашу фамилию как в удостоверении:");
             }
+
             case "SURNAME" -> {
+                if (data.isBlank()) {
+                    yield new SendMessage(chatId.toString(), "Фамилия не может быть пустой. Введите ещё раз:");
+                }
                 userService.updateRegistrationSurname(telegramId, data);
-                return new SendMessage(chatId.toString(), "Пожалуйста, введите ваше отчество как в удостоверении:");
+                yield createFatherNameKeyboard(chatId); // Клавиатура с "Пропустить"
             }
+
             case "FATHERNAME" -> {
-                userService.completeRegistration(telegramId, data);
+                String fatherName = "skip_fathername".equals(data) ? null : data.strip();
+
+                // Если ввели только пробелы — тоже пропускаем
+                if (fatherName != null && fatherName.isBlank()) {
+                    fatherName = null;
+                }
+
+                userService.completeRegistration(telegramId, fatherName);
+
                 User user = userService.findByTelegramId(telegramId).orElseThrow();
+                String tgUsername = user.getTelegramUsername();
+
                 auditLogService.logAction(
-                        user,
-                        "REGISTER_USER",
-                        ActionCategory.USER,
-                        "User",
-                        user.getId(),
-                        "User registration completed",
-                        null,
-                        null,
-                        "Telegram Bot",
-                        user.getTelegramUsername(),
-                        true,
-                        null,
-                        Map.of("username", user.getTelegramUsername(), "fullName", user.getFullName())
-                        );
-                return new SendMessage(chatId.toString(),
-                        String.format("✅ Регистрация завершена! Добро пожаловать, %s!", user.getFullName()));
+                        user, "REGISTER_USER", ActionCategory.USER, "User", user.getId(),
+                        "User registration completed", null, null, "Telegram Bot",
+                        tgUsername, true, null,
+                        Map.of(
+                                "username", tgUsername != null ? tgUsername : "-",
+                                "fullName", user.getFullName(),
+                                "hasFatherName", fatherName != null ? "yes" : "no"
+                        )
+                );
+
+                yield new SendMessage(chatId.toString(),
+                        String.format("Регистрация завершена! Добро пожаловать, %s!", user.getFullName()));
             }
-            default -> {
-                return new SendMessage(chatId.toString(), "Ошибка регистрации. Используйте /start для начала.");
-            }
-        }
+
+            default -> new SendMessage(chatId.toString(), "Ошибка регистрации. Используйте /start для начала.");
+        };
     }
 
     // ---------- Выбор отдела / должности ----------
@@ -184,7 +192,8 @@ public class UserCommandHandler {
     }
 
     private SendMessage createBranchInlineKeyboard(Long chatId, int page) {
-        List<Branch> branches = branchRepository.findAll();
+        List<Branch> branches = branchRepository.findAllWithSpecialFirst();
+
         SendMessage message = new SendMessage(chatId.toString(),
                 "Пожалуйста, выберите ваше управление из списка или введите вручную:");
         message.setReplyMarkup(keyBoardUtil.createBranchKeyboard(branches, page));
@@ -196,6 +205,25 @@ public class UserCommandHandler {
         SendMessage message = new SendMessage(chatId.toString(),
                 "Пожалуйста, выберите вашу должность из списка или введите вручную:");
         message.setReplyMarkup(keyBoardUtil.createPositionKeyboard(positions, page));
+        return message;
+    }
+    private SendMessage createFatherNameKeyboard(Long chatId) {
+        SendMessage message = new SendMessage(chatId.toString(),
+                "Пожалуйста, введите ваше отчество как в удостоверении:\n\n<i>Если отчества нет — нажмите «Пропустить»</i>");
+        message.enableHtml(true);
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        InlineKeyboardButton skipButton = new InlineKeyboardButton("Пропустить");
+        skipButton.setCallbackData("skip_fathername");
+
+        List<InlineKeyboardButton> row = new ArrayList<>();
+        row.add(skipButton);
+        rows.add(row);
+
+        markup.setKeyboard(rows);
+        message.setReplyMarkup(markup);
         return message;
     }
 

@@ -10,6 +10,7 @@ import org.info.tg_bot.util.EncryptionConverter;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Stream;
 
 @Entity
 @Table(name = "users")
@@ -80,14 +81,9 @@ public class User {
         return this.role == UserRole.ADMIN;
     }
     public String getFullName() {
-        if (surname != null && name != null) {
-            String fullName = surname + " " + name;
-            if (fathername != null) {
-                fullName += " " + fathername;
-            }
-            return fullName;
-        }
-        return getDisplayName();
+        return Stream.of(surname, name, fathername)
+                .filter(s -> s != null && !s.trim().isEmpty())
+                .collect(java.util.stream.Collectors.joining(" "));
     }
 
     public String getDisplayName() {
