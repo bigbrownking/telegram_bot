@@ -34,12 +34,11 @@ public class UserService {
     private final DepartmentRepository departmentRepository;
     private final PositionRepository positionRepository;
     private final BranchRepository branchRepository;
-    private final EncryptionUtil encryptionUtil;
-    private UserBot userBot;
+    private NotificationService notificationService;
 
     @Autowired
-    public void setUserBot(@Lazy UserBot userBot) {
-        this.userBot = userBot;
+    public void setNotificationService(@Lazy NotificationService notificationService) {
+        this.notificationService = notificationService;
     }
 
     // === Регистрация ===
@@ -53,6 +52,7 @@ public class UserService {
     private final Map<Long, Boolean> waitingForCancelDocumentNumber = new HashMap<>();
     private final Map<Long, Long> waitingForExtensionReason = new HashMap<>();
     private final Map<Long, Integer> lastMessageIds = new HashMap<>();
+    private final Map<Long, Map<String, String>> tempData = new ConcurrentHashMap<>();
 
 
     // === Ожидание действий администратора (из AdminCommandHandler) ===
@@ -159,6 +159,24 @@ public class UserService {
         log.info("✅ User registered: {} (telegramId: {})", user.getFullName(), telegramId);
     }
 
+    public void setTempData(Long telegramId, String key, String value) {
+        tempData.computeIfAbsent(telegramId, k -> new HashMap<>()).put(key, value);
+    }
+
+    public String getTempData(Long telegramId, String key) {
+        Map<String, String> userData = tempData.get(telegramId);
+        return userData != null ? userData.get(key) : null;
+    }
+
+    public void clearTempData(Long telegramId, String key) {
+        Map<String, String> userData = tempData.get(telegramId);
+        if (userData != null) {
+            userData.remove(key);
+            if (userData.isEmpty()) {
+                tempData.remove(telegramId);
+            }
+        }
+    }
     // ======================================================
     // ✅ Ожидание номера поручения
     // ======================================================
@@ -441,8 +459,8 @@ public class UserService {
 
     public String getAllUsernames() {
         return userRepository.findAll().stream()
-                .map(User::getFullName)
-                .filter(name -> !name.trim().isEmpty())
+                .map(user -> String.format("%d | %s", user.getId(), user.getFullName()))
+                .filter(line -> !line.endsWith(" | "))
                 .collect(java.util.stream.Collectors.joining("\n"));
     }
     @Transactional
@@ -455,27 +473,28 @@ public class UserService {
         User user = userOpt.get();
         Long telegramId = user.getTelegramId();
 
-        try {
-            SendMessage message = new SendMessage(
-                    telegramId.toString(),
-                    "Ваша регистрация была удалена администратором.\n" +
-                            "Причина: некорректные данные.\n" +
-                            "Пожалуйста, начните регистрацию заново с помощью /start."
-            );
-            userBot.execute(message);
-        } catch (TelegramApiException e) {
-            log.warn("Failed to notify user {} about deletion: {}", telegramId, e.getMessage());
-        }
+        String fullName = user.getFullName();
 
+        String text = String.format("""
+        Уважаемый(ая) <b>%s</b>!
+
+        Ваша регистрация была удалена администратором.
+        Причина: некорректные данные.
+        Пожалуйста, начните регистрацию заново с помощью /start.
+        """, fullName);
 
         auditLogRepository.deleteByUserId(user.getId());
         userRepository.delete(user);
 
-        Optional<User> again = userRepository.findByFullName(name, surname, fathername);
-        if (again.isEmpty()) {
-            return "User deleted and notified successfully.";
-        }
-        return "User deleted, but verification failed.";
+        notificationService.notifyUser(telegramId, text, null);
+
+
+
+
+        boolean deleted = userRepository.findByFullName(name, surname, fathername).isEmpty();
+        return deleted
+                ? "User deleted (notification attempted)."
+                : "User deletion verification failed.";
     }
 
 }

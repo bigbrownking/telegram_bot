@@ -13,7 +13,9 @@ import org.info.tg_bot.service.*;
 import org.info.tg_bot.service.AuditLogService;
 import org.info.tg_bot.util.KeyBoardUtil;
 import org.springframework.stereotype.Component;
+import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ForceReplyKeyboard;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 
@@ -136,24 +138,35 @@ public class UserCommandHandler {
 
             case "NAME" -> {
                 if (data.isBlank()) {
-                    yield new SendMessage(chatId.toString(), "Имя не может быть пустым. Введите ещё раз:");
+                    yield createForceReply(chatId, "Имя не может быть пустым. Введите ещё раз:");
                 }
-                userService.updateRegistrationName(telegramId, data);
-                yield new SendMessage(chatId.toString(), "Пожалуйста, введите вашу фамилию как в удостоверении:");
+                if (data.trim().contains(" ")) {
+                    yield createForceReply(chatId,
+                            "Пожалуйста, введите **только имя** (без фамилии и отчества).\n" +
+                                    "Например: *Иван*");
+                }
+                userService.updateRegistrationName(telegramId, data.trim());
+                yield createForceReply(chatId,
+                        "Теперь введите **фамилию**:\n" +
+                                "Например: *Иванов*");
             }
 
             case "SURNAME" -> {
                 if (data.isBlank()) {
-                    yield new SendMessage(chatId.toString(), "Фамилия не может быть пустой. Введите ещё раз:");
+                    yield createForceReply(chatId, "Фамилия не может быть пустой. Введите ещё раз:");
                 }
-                userService.updateRegistrationSurname(telegramId, data);
-                yield createFatherNameKeyboard(chatId); // Клавиатура с "Пропустить"
+                if (data.trim().contains(" ")) {
+                    yield createForceReply(chatId,
+                            "Пожалуйста, введите **только фамилию** (без имени и отчества).\n" +
+                                    "Например: *Иванов*");
+                }
+                userService.updateRegistrationSurname(telegramId, data.trim());
+                yield createFatherNameKeyboard(chatId);
             }
 
             case "FATHERNAME" -> {
                 String fatherName = "skip_fathername".equals(data) ? null : data.strip();
 
-                // Если ввели только пробелы — тоже пропускаем
                 if (fatherName != null && fatherName.isBlank()) {
                     fatherName = null;
                 }
@@ -181,8 +194,12 @@ public class UserCommandHandler {
             default -> new SendMessage(chatId.toString(), "Ошибка регистрации. Используйте /start для начала.");
         };
     }
-
-    // ---------- Выбор отдела / должности ----------
+    private SendMessage createForceReply(Long chatId, String text) {
+        SendMessage msg = new SendMessage(chatId.toString(), text);
+        msg.setParseMode(ParseMode.MARKDOWN);
+        msg.setReplyMarkup(ForceReplyKeyboard.builder().build());
+        return msg;
+    }
     private SendMessage createDepartmentInlineKeyboard(Long chatId, int page) {
         List<Department> departments = departmentRepository.findAll();
         SendMessage message = new SendMessage(chatId.toString(),

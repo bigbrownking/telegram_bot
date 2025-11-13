@@ -152,10 +152,47 @@ public class KeyBoardUtil {
         }
     }
 
-    private InlineKeyboardButton createButton(String text, String callbackData) {
+    public InlineKeyboardButton createButton(String text, String callbackData) {
         return InlineKeyboardButton.builder()
                 .text(text)
                 .callbackData(callbackData)
                 .build();
     }
+
+    public InlineKeyboardMarkup createPaginationKeyboard(String statusFilter, int page, int total, int pageSize) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        // Кнопки действий можно добавить сверху, если нужно
+        // rows.add(List.of(new InlineKeyboardButton("🔙 Назад к статистике").setCallbackData("back_to_stats")));
+
+        // Навигация по страницам
+        List<InlineKeyboardButton> navButtons = new ArrayList<>();
+        int totalPages = (int) Math.ceil((double) total / pageSize);
+
+        if (page > 0) {
+            navButtons.add(InlineKeyboardButton.builder()
+                    .text("⬅ Назад")
+                    .callbackData("tasks_filter:" + statusFilter + ":" + (page - 1))
+                    .build());
+        }
+
+        if (page < totalPages - 1) {
+            navButtons.add(InlineKeyboardButton.builder()
+                    .text("Вперёд ➡")
+                    .callbackData("tasks_filter:" + statusFilter + ":" + (page + 1))
+                    .build());
+        }
+
+        rows.add(navButtons);
+
+        rows.add(List.of(InlineKeyboardButton.builder()
+                .text("📊 Вернуться к статистике")
+                .callbackData("tasks_back")
+                .build()));
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
 }

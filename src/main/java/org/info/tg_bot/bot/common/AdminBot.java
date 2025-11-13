@@ -195,8 +195,7 @@ public class AdminBot extends TelegramLongPollingBot {
 
         // --- Фильтр задач ---
         if (callbackData.startsWith("tasks_filter:")) {
-            String statusFilter = callbackData.substring("tasks_filter:".length());
-            response = adminCommandHandler.handleTasksFilter(chatId, telegramId, statusFilter);
+            response = adminCommandHandler.handleTasksFilter(chatId, telegramId, callbackData);
             sendAndTrack(chatId, telegramId, response);
             execute(new AnswerCallbackQuery(callbackQueryId));
             return;

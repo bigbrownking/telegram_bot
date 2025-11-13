@@ -79,12 +79,14 @@ public class AdminCommandHandler {
     public SendMessage handleHelpCommand(Long chatId) {
         String help = """
                 📘 Доступные команды:
-                /start – начать работу
-                /upload – загрузить Excel с поручениями
-                /pending – просмотреть запросы на продление
-                /tasks – просмотреть все загруженные поручения
-                /cancel – отменить документ
-                /help – показать это сообщение
+                /start – Начать работу
+                /upload – Загрузить Excel с поручениями
+                /pending – Просмотреть запросы на продление
+                /tasks – Просмотреть все загруженные поручения.
+                Для детального просмотра поручения введите /tasks [регистрационный номер].
+                Например: /tasks Д-228
+                /cancel – Отменить документ
+                /help – Показать это сообщение
                 """;
         return new SendMessage(chatId.toString(), help);
     }
@@ -566,57 +568,68 @@ public class AdminCommandHandler {
     }
 
 
-    public SendMessage handleTasksFilter(Long chatId, Long adminTelegramId, String statusFilter) {
-        Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
-        if (adminOpt.isEmpty()) {
-            return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
-        }
+    public SendMessage handleTasksFilter(Long chatId, Long adminTelegramId, String callbackData) {
+        try {
+            String[] parts = callbackData.split(":");
+            String statusFilter = parts[1];
+            int page = parts.length > 2 ? Integer.parseInt(parts[2]) : 0;
+            int pageSize = 10;
 
-        User admin = adminOpt.get();
-        List<Document> documents;
-
-        if ("ALL" .equals(statusFilter)) {
-            documents = documentService.findByUploadedBy(admin);
-        } else {
-            DocumentStatus status = DocumentStatus.valueOf(statusFilter);
-            documents = documentService.findByUploadedByAndStatus(admin, status);
-        }
-
-        if (documents.isEmpty()) {
-            String statusName = "ALL" .equals(statusFilter) ? "всего" : DocumentStatus.valueOf(statusFilter).getDisplayName();
-            return new SendMessage(chatId.toString(),
-                    "📭 Нет поручений со статусом: " + statusName);
-        }
-
-        StringBuilder text = new StringBuilder();
-        String filterName = "ALL" .equals(statusFilter) ? "Все поручения" : DocumentStatus.valueOf(statusFilter).getDisplayName();
-        text.append("📋 <b>").append(filterName).append("</b>\n");
-        text.append("Найдено: ").append(documents.size()).append(" поручений\n\n");
-
-        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-        int counter = 1;
-        for (Document doc : documents) {
-            text.append(counter++).append(". 📄 <b>").append(doc.getRegNumber()).append("</b>\n");
-            text.append("   👤 Исполнитель: ").append(doc.getExecutor().getFullName()).append("\n");
-            text.append("   📝 ").append(doc.getSummary()).append("\n");
-            text.append("   🗓 Срок: ").append(doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан").append("\n");
-            text.append("   📊 Статус: ").append(doc.getStatus().getDisplayName()).append("\n");
-
-            InlineKeyboardMarkup taskActions = keyBoardUtil.createTaskActionsKeyboard(doc);
-            if (!taskActions.getKeyboard().isEmpty()) {
-                keyboard.addAll(taskActions.getKeyboard());
+            Optional<User> adminOpt = userService.findByTelegramId(adminTelegramId);
+            if (adminOpt.isEmpty()) {
+                return new SendMessage(chatId.toString(), "⚠ Администратор не найден.");
             }
 
-            text.append("\n");
+            User admin = adminOpt.get();
+            List<Document> documents;
+
+            if ("ALL".equals(statusFilter)) {
+                documents = documentService.findByUploadedBy(admin);
+            } else {
+                DocumentStatus status = DocumentStatus.valueOf(statusFilter);
+                documents = documentService.findByUploadedByAndStatus(admin, status);
+            }
+
+            if (documents.isEmpty()) {
+                return new SendMessage(chatId.toString(), "📭 Нет поручений со статусом: " +
+                        ("ALL".equals(statusFilter) ? "все" : DocumentStatus.valueOf(statusFilter).getDisplayName()));
+            }
+
+            // Пагинация
+            int total = documents.size();
+            int fromIndex = page * pageSize;
+            int toIndex = Math.min(fromIndex + pageSize, total);
+            List<Document> pageDocs = documents.subList(fromIndex, toIndex);
+
+            StringBuilder text = new StringBuilder();
+            text.append("📋 <b>")
+                    .append("Поручения (")
+                    .append("ALL".equals(statusFilter) ? "Все" : DocumentStatus.valueOf(statusFilter).getDisplayName())
+                    .append(")</b>\n");
+            text.append("Страница ").append(page + 1).append(" из ").append((total + pageSize - 1) / pageSize).append("\n\n");
+
+            for (Document doc : pageDocs) {
+                text.append("📄 <b>").append(doc.getRegNumber()).append("</b>\n")
+                        .append("👤 ").append(doc.getExecutor().getFullName()).append("\n")
+                        .append("🗓 ").append(doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан").append("\n")
+                        .append("📊 ").append(doc.getStatus().getDisplayName()).append("\n\n");
+            }
+
+            SendMessage message = new SendMessage(chatId.toString(), text.toString());
+            message.enableHtml(true);
+
+            // Добавляем клавиатуру с постраничными кнопками
+            InlineKeyboardMarkup markup = keyBoardUtil.createPaginationKeyboard(statusFilter, page, total, pageSize);
+            message.setReplyMarkup(markup);
+
+            return message;
+
+        } catch (Exception e) {
+            log.error("Error in handleTasksFilter: {}", e.getMessage(), e);
+            return new SendMessage(chatId.toString(), "⚠ Произошла ошибка при обработке фильтра.");
         }
-
-        keyboard.addAll(keyBoardUtil.createBackToStatsKeyboard().getKeyboard());
-
-        SendMessage message = new SendMessage(chatId.toString(), text.toString());
-        message.enableHtml(true);
-        message.setReplyMarkup(new InlineKeyboardMarkup(keyboard));
-        return message;
     }
+
 
     public SendMessage handleApproveExtendRequest(Long chatId, Long requestId, Long adminTelegramId) {
         Optional<ExtensionRequest> requestOpt = extensionRequestService.findById(requestId);
