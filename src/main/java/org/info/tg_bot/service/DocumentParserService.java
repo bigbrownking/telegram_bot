@@ -33,6 +33,7 @@ public class DocumentParserService {
     private final NotificationService notificationService;
     private final TempDocumentRepository tempDocumentRepository;
     private final DocumentRepository documentRepository;
+    private final UserService userService;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final EncryptionUtil encryptionUtil;
@@ -127,20 +128,16 @@ public class DocumentParserService {
                             case "executor" -> {
                                 String executorRaw = getString(cell);
                                 if (executorRaw != null && !executorRaw.isBlank()) {
-                                    executorRaw = executorRaw
-                                            .replaceAll("\\s*\\([^)]*\\)", "")
-                                            .replaceAll("\\s+", " ")
-                                            .trim();
-
                                     try {
                                         User matched = findUserByShortName(executorRaw);
                                         if (matched != null) {
                                             executorUser = matched;
+                                            log.info("✓ Executor matched: {}", matched.getFullName());
                                         } else {
                                             log.warn("No user match for executor: '{}' (sheet: {})", executorRaw, sheetName);
                                         }
                                     } catch (Exception e) {
-                                        log.error("Error finding user: {}", executorRaw, e);
+                                        log.error("Error finding user: '{}' - {}", executorRaw, e.getMessage(), e);
                                     }
                                 }
                             }
@@ -263,6 +260,7 @@ public class DocumentParserService {
             return new ArrayList<>();
         }
     }
+
     private DocumentStatus determineStatus(LocalDate executionDate, DocumentStatus currentStatus) {
         if (executionDate == null) {
             return DocumentStatus.PENDING;
@@ -317,12 +315,14 @@ public class DocumentParserService {
 
         return columnMap;
     }
+
     private String normalize(String s) {
         return s.toLowerCase()
                 .replaceAll("[^а-яa-z0-9\\s]", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
     }
+
     private List<String> getHeaderNames(Row headerRow, Map<Integer, String> columnMap) {
         return columnMap.keySet().stream()
                 .map(idx -> getString(headerRow.getCell(idx)))
@@ -384,7 +384,8 @@ public class DocumentParserService {
         for (DateTimeFormatter fmt : formats) {
             try {
                 return LocalDate.parse(val.trim(), fmt);
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
         return null;
     }
@@ -414,13 +415,32 @@ public class DocumentParserService {
                             newDoc.getExecutor().getTelegramId(),
                             String.format("""
                                             Вам назначен новый документ
-                                            • %s
+                                            •Номер документа:  %s
+                                            •Краткое содержание: %s
                                             Срок исполнения: %s
                                             """,
                                     newDoc.getRegNumber() != null ? newDoc.getRegNumber() : "(без номера)",
+                                    newDoc.getSummary() != null ? newDoc.getSummary() : "(без содержания)",
                                     newDoc.getExecutionDate() != null ? newDoc.getExecutionDate() : "не указан"),
                             null
                     );
+                    userRepository.findDepartmentBoss(newDoc.getExecutor().getDepartment().getId()).ifPresent(depBoss -> notificationService.notifyUser(
+                            depBoss.getTelegramId(),
+                            String.format("""
+                                            Вам как руководителю департамента назначен новый документ
+                                            •Номер документа:  %s
+                                            •Краткое содержание: %s
+                                            •Исполнитель: %s
+                                            Срок исполнения: %s
+                                            """,
+                                    newDoc.getRegNumber() != null ? newDoc.getRegNumber() : "(без номера)",
+                                    newDoc.getSummary() != null ? newDoc.getSummary() : "(без содержания)",
+                                    newDoc.getExecutor() != null ? newDoc.getExecutor().getFullName() : "(безымянный)",
+                                    newDoc.getExecutionDate() != null ? newDoc.getExecutionDate() : "не указан"),
+                            null
+                    ));
+
+
                 }
             }
         }
@@ -463,10 +483,10 @@ public class DocumentParserService {
                 notificationService.notifyUser(
                         newExecutor.getTelegramId(),
                         String.format("""
-                                    Вам назначен документ
-                                    • %s
-                                    Срок исполнения: %s
-                                    """,
+                                        Вам назначен документ
+                                        • %s
+                                        Срок исполнения: %s
+                                        """,
                                 existingDoc.getSummary() != null ? existingDoc.getSummary() : "(без содержания)",
                                 existingDoc.getExecutionDate() != null ? existingDoc.getExecutionDate() : "не указан"),
                         null
@@ -495,10 +515,10 @@ public class DocumentParserService {
                 notificationService.notifyUser(
                         existingDoc.getExecutor().getTelegramId(),
                         String.format("""
-                                    Ваш документ обновлён
-                                    • %s
-                                    Новый срок: %s
-                                    """,
+                                        Ваш документ обновлён
+                                        • %s
+                                        Новый срок: %s
+                                        """,
                                 existingDoc.getSummary() != null ? existingDoc.getSummary() : "(без содержания)",
                                 existingDoc.getExecutionDate() != null ? existingDoc.getExecutionDate() : "не указан"),
                         null
@@ -523,32 +543,80 @@ public class DocumentParserService {
                 .build();
     }
 
-    private User findUserByShortName(String shortName) throws Exception {
+    public User findUserByShortName(String shortName) throws Exception {
         if (shortName == null || shortName.isBlank()) return null;
 
-        String[] parts = shortName.split("\\s+");
-        if (parts.length < 2) return null;
+        String cleaned = shortName
+                .replaceAll("\\s*\\([^()]*\\)", "")
+                .replaceAll("\\s*\\([^()]*\\)", "")
+                .replaceAll("[()]", "")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toUpperCase();
+
+        String[] parts = cleaned.split("\\s+");
+        if (parts.length < 2) {
+            log.warn("Not enough parts in: '{}'", shortName);
+            return null;
+        }
 
         String surname = parts[0];
-        String initials = parts.length > 1 ? parts[1] : "";
 
-        Matcher matcher = Pattern.compile("([А-ЯЁ])\\.\\s*([А-ЯЁ])?\\.?", Pattern.CASE_INSENSITIVE).matcher(initials);
-        String nameInitial = null, fatherInitial = null;
-        if (matcher.find()) {
-            nameInitial = matcher.group(1).toUpperCase();
-            if (matcher.group(2) != null) fatherInitial = matcher.group(2).toUpperCase();
+        // Извлекаем инициалы из оставшихся частей
+        List<String> initials = new ArrayList<>();
+
+        for (int i = 1; i < parts.length; i++) {
+            String part = parts[i];
+
+            // Убираем все точки и оставляем только буквы
+            String lettersOnly = part.replaceAll("[^А-Яа-яЁёӘәІіҢңҒғҮүҰұӨөҚқҺһƏə]", "");
+
+            if (lettersOnly.isEmpty()) continue;
+
+            // 🔥 КЛЮЧЕВОЕ ИЗМЕНЕНИЕ:
+            // Если короткая строка (1-2 буквы) - это инициалы, берем все буквы
+            if (lettersOnly.length() <= 2) {
+                for (char c : lettersOnly.toCharArray()) {
+                    initials.add(String.valueOf(c));
+                }
+            } else {
+                // Если длинная строка (>2 букв) - это полное имя, берем только первую букву
+                initials.add(String.valueOf(lettersOnly.charAt(0)));
+            }
         }
+
+        if (initials.isEmpty()) {
+            log.warn("No initials found in: '{}'", shortName);
+            return null;
+        }
+
+        String nameInitial = initials.get(0);
+        String fatherInitial = initials.size() > 1 ? initials.get(1) : null;
+
+        log.debug("Parsing: surname='{}', nameInitial='{}', fatherInitial='{}'",
+                surname, nameInitial, fatherInitial);
 
         String encryptedSurname = encryptionUtil.encrypt(surname);
         List<User> candidates = userRepository.findBySurnameIgnoreCase(encryptedSurname);
 
+        log.debug("Found {} candidates for surname '{}'", candidates.size(), surname);
+
         for (User user : candidates) {
-            boolean nameMatch = nameInitial == null || user.getName().toUpperCase().startsWith(nameInitial);
-            boolean fatherMatch = fatherInitial == null || (user.getFathername() != null && user.getFathername().toUpperCase().startsWith(fatherInitial));
+            String userName = user.getName() != null ? user.getName().toUpperCase() : "";
+            String userFather = user.getFathername() != null ? user.getFathername().toUpperCase() : "";
+
+            boolean nameMatch = !userName.isEmpty() && userName.startsWith(nameInitial);
+            boolean fatherMatch = fatherInitial == null ||
+                    userFather.isEmpty() ||
+                    userFather.startsWith(fatherInitial);
+
             if (nameMatch && fatherMatch) {
+                log.info("✓ Matched user: {} (from '{}')", user.getFullName(), shortName);
                 return user;
             }
         }
+
+        log.warn("No user found for: '{}'", shortName);
         return null;
     }
 }
