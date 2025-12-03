@@ -610,7 +610,7 @@ public class AdminCommandHandler {
 
             for (Document doc : pageDocs) {
                 text.append("📄 <b>").append(doc.getRegNumber()).append("</b>\n")
-                        .append("👤 ").append(doc.getExecutor().getFullName()).append("\n")
+                        .append("👤 ").append(doc.getExecutor() != null ? doc.getExecutor().getFullName() : "не найдено").append("\n")
                         .append("🗓 ").append(doc.getExecutionDate() != null ? doc.getExecutionDate() : "не указан").append("\n")
                         .append("📊 ").append(doc.getStatus().getDisplayName()).append("\n\n");
             }

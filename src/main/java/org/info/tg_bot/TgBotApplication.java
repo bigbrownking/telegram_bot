@@ -18,4 +18,11 @@ public class TgBotApplication {
     public static void main(String[] args) {
         SpringApplication.run(TgBotApplication.class, args);
     }
+
+    @Bean
+    public CommandLineRunner run(EncryptionUtil encryptionUtil) {
+        return args -> {
+        };
+    }
+
 }

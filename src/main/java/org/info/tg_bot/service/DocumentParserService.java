@@ -33,7 +33,6 @@ public class DocumentParserService {
     private final NotificationService notificationService;
     private final TempDocumentRepository tempDocumentRepository;
     private final DocumentRepository documentRepository;
-    private final UserService userService;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final EncryptionUtil encryptionUtil;
@@ -394,7 +393,6 @@ public class DocumentParserService {
         List<Document> finalDocuments = new ArrayList<>();
         Map<String, TempDocument> tempMap = tempDocuments.stream()
                 .collect(Collectors.toMap(TempDocument::getRegNumber, t -> t));
-
         List<Document> existingDocuments = documentRepository.findByRegNumberIn(tempMap.keySet());
 
         for (Document existingDoc : existingDocuments) {
