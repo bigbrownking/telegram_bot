@@ -133,7 +133,7 @@ public class UserCommandHandler {
                             .orElseThrow(() -> new RuntimeException("Position not found"));
                     userService.updateRegistrationPosition(telegramId, pos.getName());
                 }
-                yield new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя как в удостоверении:");
+                yield new SendMessage(chatId.toString(), "Пожалуйста, введите ваше имя как в удостоверении(кириллица рус/каз):");
             }
 
             case "NAME" -> {

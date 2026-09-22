@@ -53,10 +53,12 @@ public class Scheduler {
                             "⚠ <b>Просрочено поручение</b>\n\n" +
                                     "📄 Поручение №%s\n" +
                                     "📝 Описание: %s\n" +
+                                    "👤 Исполнитель: %s\n" +
                                     "🗓 Срок исполнения: %s\n" +
                                     "⏰ Просрочено на %d %s\n",
                             doc.getRegNumber(),
                             doc.getSummary(),
+                            responsible.getFullName(),
                             doc.getExecutionDate(),
                             daysOverdue,
                             getDaysWord(daysOverdue)
@@ -120,7 +122,6 @@ public class Scheduler {
                                 getDaysWord(daysUntilDue)
                         );
 
-                        log.info("notttttt");
                         notificationService.notifyUser(responsible.getTelegramId(), message, null);
 
                         auditLogService.logAction(
@@ -144,49 +145,6 @@ public class Scheduler {
                     }
                 }
             }
-        }
-    }
-    @Scheduled(cron = "${scheduler.temp-cleaner.cron}")
-    @Transactional
-    public void clearTempDocuments() {
-        long countBefore = tempDocumentRepository.count();
-
-        if (countBefore > 0) {
-            tempDocumentRepository.deleteAll();
-            log.info("✅ Cleared {} temp documents from temp table.", countBefore);
-
-            auditLogService.logAction(
-                    null,
-                    "CLEAR_TEMP_DOCUMENTS",
-                    ActionCategory.SYSTEM,
-                    "TempDocument",
-                    null,
-                    "Cleared all temp documents",
-                    null,
-                    null,
-                    "Telegram Bot",
-                    null,
-                    true,
-                    null,
-                    Map.of("clearedCount", countBefore)
-            );
-        } else {
-            log.info("✅ No temp documents to clear.");
-            auditLogService.logAction(
-                    null,
-                    "CLEAR_TEMP_DOCUMENTS",
-                    ActionCategory.SYSTEM,
-                    "TempDocument",
-                    null,
-                    "No temp documents to clear",
-                    null,
-                    null,
-                    "Telegram Bot",
-                    null,
-                    true,
-                    null,
-                    Map.of("clearedCount", 0L)
-            );
         }
     }
     @Scheduled(cron = "0 * * * * ?")

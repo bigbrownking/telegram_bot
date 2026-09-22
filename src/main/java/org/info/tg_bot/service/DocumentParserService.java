@@ -42,16 +42,17 @@ public class DocumentParserService {
             "regNumber", Set.of(
                     "рег номер", "номер обращения", "регномер", "номер",
                     "рег номер и дата входящего документа",
-                    "рег номер и дата"
+                    "рег номер и дата", "рег п"
             ),
             "executionDate", Set.of(
-                    "срок", "срок исполнения", "дата исполнения", "дата"
+                    "срок", "срок исполнения", "дата исполнения", "дата", "срок док та"
             ),
             "department", Set.of(
                     "сп", "подразделение", "структурное подразделение", "государственный орган", "отдел"
             ),
             "summary", Set.of(
-                    "поручение", "краткое содержание", "содержание", "суть", "описание", "текст"
+                    "поручение", "краткое содержание", "содержание", "суть", "описание", "текст",
+                    "кр сод основного д та кр сод резолюции"
             ),
             "executor", Set.of(
                     "ответственный",
@@ -62,7 +63,6 @@ public class DocumentParserService {
                     "исполнитель",
                     "сотрудник"
             )
-
     );
 
     public List<Document> parse(InputStream inputStream, User uploader) {
@@ -208,6 +208,8 @@ public class DocumentParserService {
                     .filter(doc -> !DocumentStatus.PENDING.equals(doc.getStatus()))
                     .toList();
 
+            List<String> completedRegNumbers = new ArrayList<>();
+
             for (Document doc : documentsToComplete) {
                 doc.setStatus(DocumentStatus.COMPLETED);
                 documentRepository.save(doc);
@@ -235,13 +237,44 @@ public class DocumentParserService {
                 executionResultService.save(resultToSave);
 
                 auditLogService.logAction(
-                        doc.getUploadedBy(), "MOVE_TO_EXECUTION_RESULT", ActionCategory.SYSTEM,
+                        doc.getUploadedBy(), "AUTO_COMPLETE_DOCUMENT", ActionCategory.SYSTEM,
                         "Document", doc.getId(),
-                        String.format("Document %s moved to execution_results (absent in temp upload)", doc.getRegNumber()),
+                        String.format("Document %s auto-completed (absent in temp upload)", doc.getRegNumber()),
                         null, null, "Telegram Bot",
                         doc.getUploadedBy() != null ? doc.getUploadedBy().getTelegramUsername() : null,
                         true, null, Map.of("regNumber", doc.getRegNumber())
                 );
+                completedRegNumbers.add(doc.getRegNumber());
+
+            }
+
+            //УДАЛЯЕМ ИЗ TEMP ТОЛЬКО ЗАВЕРШЁННЫЕ ДОКУМЕНТЫ
+            if (!completedRegNumbers.isEmpty()) {
+                List<TempDocument> tempToDelete = tempDocumentRepository.findAll().stream()
+                        .filter(temp -> completedRegNumbers.contains(temp.getRegNumber()))
+                        .collect(Collectors.toList());
+
+                if (!tempToDelete.isEmpty()) {
+                    tempDocumentRepository.deleteAll(tempToDelete);
+                    log.info("✅ Deleted {} completed documents from temp table: {}",
+                            tempToDelete.size(), completedRegNumbers);
+
+                    auditLogService.logAction(
+                            uploader,
+                            "DELETE_COMPLETED_FROM_TEMP",
+                            ActionCategory.SYSTEM,
+                            "TempDocument",
+                            null,
+                            "Deleted completed documents from temp",
+                            null,
+                            null,
+                            "Telegram Bot",
+                            uploader.getTelegramUsername(),
+                            true,
+                            null,
+                            Map.of("deletedCount", tempToDelete.size(), "regNumbers", completedRegNumbers)
+                    );
+                }
             }
 
             log.info("Excel parse completed. {} sheets, {} total docs processed, {} auto-completed",
@@ -364,31 +397,58 @@ public class DocumentParserService {
     private LocalDate getLocalDate(Cell cell) {
         if (cell == null) return null;
 
-        if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
-            return cell.getDateCellValue().toInstant()
-                    .atZone(java.time.ZoneId.systemDefault())
-                    .toLocalDate();
+        if (cell.getCellType() == CellType.NUMERIC) {
+            if (DateUtil.isCellDateFormatted(cell)) {
+                return cell.getDateCellValue().toInstant()
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDate();
+            }
+
+            // числовое значение — Excel serial number
+            double numVal = cell.getNumericCellValue();
+            if (numVal > 1000) { // защита от случайных малых чисел
+                try {
+                    return DateUtil.getLocalDateTime(numVal)
+                            .toLocalDate();
+                } catch (Exception e) {
+                    log.warn("Failed to convert Excel serial number to date: {}", numVal);
+                }
+            }
         }
 
         String val = getString(cell);
+        log.debug("Parsing date from string: '{}' (cell type: {})", val, cell.getCellType());
+
         if (val == null || val.isBlank()) return null;
+
+        // Ячейка может содержать несколько дат (перенос строки или пробел),
+        // например "14.07.2026 04.08.2026" — берём последнюю как фактический срок
+        val = val.trim();
+        if (val.matches(".*\\s.*")) {
+            String[] tokens = val.split("\\s+");
+            String lastToken = tokens[tokens.length - 1];
+            log.debug("Multiple tokens in date cell '{}', using last: '{}'", val, lastToken);
+            val = lastToken;
+        }
 
         List<DateTimeFormatter> formats = List.of(
                 DateTimeFormatter.ofPattern("dd.MM.yyyy"),
                 DateTimeFormatter.ofPattern("yyyy-MM-dd"),
                 DateTimeFormatter.ofPattern("d.M.yyyy"),
-                DateTimeFormatter.ofPattern("dd/MM/yyyy")
+                DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+                DateTimeFormatter.ofPattern("d.MM.yyyy"),
+                DateTimeFormatter.ofPattern("dd.M.yyyy")
         );
 
         for (DateTimeFormatter fmt : formats) {
             try {
                 return LocalDate.parse(val.trim(), fmt);
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) {}
         }
+
+        log.warn("Failed to parse date: '{}'", val);
         return null;
     }
-
     private List<Document> processTempDocuments(List<TempDocument> tempDocuments, User uploader) {
         List<Document> finalDocuments = new ArrayList<>();
         Map<String, TempDocument> tempMap = tempDocuments.stream()
@@ -549,8 +609,7 @@ public class DocumentParserService {
                 .replaceAll("\\s*\\([^()]*\\)", "")
                 .replaceAll("[()]", "")
                 .replaceAll("\\s+", " ")
-                .trim()
-                .toUpperCase();
+                .trim();
 
         String[] parts = cleaned.split("\\s+");
         if (parts.length < 2) {
