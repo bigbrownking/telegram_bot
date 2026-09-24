@@ -2,21 +2,16 @@ package org.info.tg_bot.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.info.tg_bot.bot.common.UserBot;
 import org.info.tg_bot.model.entity.Branch;
 import org.info.tg_bot.model.entity.Department;
 import org.info.tg_bot.model.entity.Position;
 import org.info.tg_bot.model.entity.User;
 import org.info.tg_bot.model.enums.UserRole;
 import org.info.tg_bot.repository.*;
-import org.info.tg_bot.util.EncryptionUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
-import org.telegram.telegrambots.meta.generics.TelegramBot;
 
 import java.util.HashMap;
 import java.util.List;
@@ -375,11 +370,10 @@ public class UserService {
 
         User boss;
 
-        if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) || "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
-
+        if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equalsIgnoreCase(positionName) || "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equalsIgnoreCase(positionName)) {
             boss = userRepository.findDepartmentBoss(departmentId).orElse(null);
 
-        } else if ("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equals(positionName)) {
+        } else if ("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equalsIgnoreCase(positionName)) {
             boss = userRepository.findVC().orElse(null);
         } else {
             if (branchId != null) {
@@ -389,8 +383,14 @@ public class UserService {
                         "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ",
                         "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А"
                 ).orElse(null);
+                if (boss == null) {
+                    boss = userRepository.findDepartmentBoss(departmentId).orElse(null);
+                }
             } else {
                 boss = userRepository.findUprBoss(departmentId).orElse(null);
+                if (boss == null) {
+                    boss = userRepository.findDepartmentBoss(departmentId).orElse(null);
+                }
             }
         }
 
@@ -412,10 +412,10 @@ public class UserService {
         }
         User user = optUser.get();
         String positionName = user.getPosition().getName();
-        return positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ") ||
-                positionName.equals("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А") ||
-                positionName.equals("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА") ||
-                positionName.equals("ЗАМЕСТИТЕЛЬ ПРЕДСЕДАТЕЛЯ");
+        return positionName.equalsIgnoreCase("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ") ||
+                positionName.equalsIgnoreCase("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А") ||
+                positionName.equalsIgnoreCase("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА") ||
+                positionName.equalsIgnoreCase("ЗАМЕСТИТЕЛЬ ПРЕДСЕДАТЕЛЯ");
     }
 
     public List<User> findSupervisedUsers(Long bossTelegramId) {
@@ -434,13 +434,13 @@ public class UserService {
 
         List<User> supervisedUsers = List.of();
 
-        if ("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equals(positionName)) {
+        if ("РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА".equalsIgnoreCase(positionName)) {
             supervisedUsers = userRepository.findSupervisedUsersByDepartment(departmentId);
             log.info("Found {} supervised users in department {} for boss {} (telegramId: {})",
                     supervisedUsers.size(), departmentId, boss.getFullName(), bossTelegramId);
 
-        } else if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equals(positionName) ||
-                "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equals(positionName)) {
+        } else if ("РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ".equalsIgnoreCase(positionName) ||
+                "РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А".equalsIgnoreCase(positionName)) {
 
             if (branchId != null) {
                 supervisedUsers = userRepository.findSupervisedUsersByDepartmentAndBranch(departmentId, branchId);

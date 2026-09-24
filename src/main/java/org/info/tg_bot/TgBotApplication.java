@@ -13,6 +13,7 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @SpringBootApplication
 @EnableScheduling
@@ -22,21 +23,25 @@ public class TgBotApplication {
         SpringApplication.run(TgBotApplication.class, args);
     }
 
-   /* @Bean
+    /*@Bean
     public CommandLineRunner run(EncryptionUtil encryptionUtil) {
         return args -> {
-            String inputFile = "data.csv";
-            String outputFile = "data_decrypted.csv";
+            String inputFile = "tg.csv";
+            String outputFile = "tg_decrypted.csv";
 
-            try (
-                    BufferedReader reader = new BufferedReader(new FileReader(inputFile));
-                    BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile))
-            ) {
+            // Индексы колонок для расшифровки (0-based):
+            // 6=description, 7=old_data, 8=new_data, 9=metadata
+            Set<Integer> encryptedCols = Set.of(6, 7, 8, 9);
+
+            int total = 0, decrypted = 0, errors = 0;
+
+            try (BufferedReader reader = new BufferedReader(new FileReader(inputFile));
+                 BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile))) {
+
                 String line;
                 boolean firstLine = true;
 
                 while ((line = reader.readLine()) != null) {
-                    // Пропускаем заголовок
                     if (firstLine) {
                         writer.write(line);
                         writer.newLine();
@@ -44,37 +49,85 @@ public class TgBotApplication {
                         continue;
                     }
 
-                    // Парсим: "ДЕПАРТАМЕНТ","зашифр_фамилия зашифр_имя зашифр_отчество"
-                    String[] columns = line.split("\",\"");
-                    String department = columns[0].replace("\"", "").trim();
-                    String encryptedFio = columns[1].replace("\"", "").trim();
+                    List<String> cols = parseCsvLine(line);
+                    List<String> result = new ArrayList<>();
 
-                    // Каждая часть ФИО зашифрована отдельно, разделены пробелом
-                    String[] fioParts = encryptedFio.split(" ");
-                    StringBuilder decryptedFio = new StringBuilder();
-
-                    for (String part : fioParts) {
-                        if (!decryptedFio.isEmpty()) decryptedFio.append(" ");
-                        try {
-                            decryptedFio.append(encryptionUtil.decrypt(part));
-                        } catch (Exception e) {
-                            decryptedFio.append("[ошибка]");
-                            System.err.println("Ошибка расшифровки: " + part + " → " + e.getMessage());
+                    for (int i = 0; i < cols.size(); i++) {
+                        String val = cols.get(i);
+                        if (encryptedCols.contains(i) && val != null && !val.equals("NULL") && !val.isBlank()) {
+                            try {
+                                result.add(encryptionUtil.decrypt(val));
+                                decrypted++;
+                            } catch (Exception e) {
+                                result.add(val); // оставляем как есть
+                                errors++;
+                            }
+                        } else {
+                            result.add(val);
                         }
                     }
 
-                    String resultLine = "\"" + department + "\",\"" + decryptedFio + "\"";
-                    writer.write(resultLine);
+                    writer.write(toCsvLine(result));
                     writer.newLine();
+                    total++;
 
-                    System.out.println(department + " | " + decryptedFio);
+                    if (total % 5000 == 0) {
+                        System.out.println("Обработано: " + total);
+                    }
                 }
 
-                System.out.println("\n✅ Готово! Результат сохранён в: " + outputFile);
+                System.out.printf("%n✅ Готово! Строк: %d, расшифровано значений: %d, ошибок: %d%n", total, decrypted, errors);
+                System.out.println("Результат: " + outputFile);
 
             } catch (Exception e) {
-                System.err.println("❌ Ошибка чтения файла: " + e.getMessage());
+                System.err.println("❌ Ошибка: " + e.getMessage());
             }
         };
+    }
+
+    // Парсит строку CSV с учётом NULL и кавычек
+    private List<String> parseCsvLine(String line) {
+        List<String> result = new ArrayList<>();
+        int i = 0;
+        while (i < line.length()) {
+            if (line.startsWith("NULL", i)) {
+                result.add("NULL");
+                i += 4;
+                if (i < line.length() && line.charAt(i) == ',') i++;
+            } else if (line.charAt(i) == '"') {
+                int end = i + 1;
+                while (end < line.length()) {
+                    if (line.charAt(end) == '"' && (end + 1 >= line.length() || line.charAt(end + 1) != '"')) {
+                        break;
+                    }
+                    if (line.charAt(end) == '"') end++; // escaped quote
+                    end++;
+                }
+                result.add(line.substring(i + 1, end).replace("\"\"", "\""));
+                i = end + 1;
+                if (i < line.length() && line.charAt(i) == ',') i++;
+            } else {
+                int end = line.indexOf(',', i);
+                if (end == -1) end = line.length();
+                result.add(line.substring(i, end));
+                i = end + 1;
+            }
+        }
+        return result;
+    }
+
+    // Собирает строку CSV обратно
+    private String toCsvLine(List<String> cols) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cols.size(); i++) {
+            if (i > 0) sb.append(',');
+            String val = cols.get(i);
+            if (val == null || val.equals("NULL")) {
+                sb.append("NULL");
+            } else {
+                sb.append('"').append(val.replace("\"", "\"\"")).append('"');
+            }
+        }
+        return sb.toString();
     }*/
 }

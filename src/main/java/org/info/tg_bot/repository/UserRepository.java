@@ -24,10 +24,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findVC();
     Optional<User> findByDepartmentIdAndBranchIdAndPositionNameIn(Long departmentId, Long branchId, String... positionNames);
     boolean existsByTelegramId(Long telegramId);
-    @Query("SELECT u FROM User u WHERE (u.department.id = :departmentId OR u.branch.id = :branchId) " +
+
+    @Query("SELECT u FROM User u WHERE u.department.id = :departmentId " +
+            "AND (u.branch IS NULL OR u.branch.id = :branchId) " +
             "AND u.position.name NOT IN ('РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ', 'РУКОВОДИТЕЛЬ УПРАВЛЕНИЯ А', 'РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА') " +
             "AND u.isActive = true")
-    List<User> findSupervisedUsersByDepartmentAndBranch(Long departmentId, Long branchId);
+    List<User> findSupervisedUsersByDepartmentAndBranch(@Param("departmentId") Long departmentId,
+                                                        @Param("branchId") Long branchId);
 
     @Query("SELECT u FROM User u WHERE u.department.id = :departmentId " +
             "AND u.position.name NOT IN ('РУКОВОДИТЕЛЬ ДЕПАРТАМЕНТА') " +

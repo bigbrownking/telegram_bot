@@ -93,7 +93,8 @@ public class UserCommandHandler {
                     int page = Integer.parseInt(data.substring(5));
                     yield createDepartmentInlineKeyboard(chatId, page);
                 } else {
-                    Department dept = departmentRepository.findByName(data)
+                    String resolvedName = KeyBoardUtil.DEPT_ALIAS_TO_FULL_NAME.getOrDefault(data, data);
+                    Department dept = departmentRepository.findByName(resolvedName)
                             .orElseThrow(() -> new RuntimeException("Department not found"));
                     userService.updateRegistrationDepartment(telegramId, dept.getName());
                     yield createBranchInlineKeyboard(chatId, 0);

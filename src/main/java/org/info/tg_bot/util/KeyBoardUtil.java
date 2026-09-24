@@ -26,6 +26,27 @@ public class KeyBoardUtil {
     private static final int DEPARTMENTS_PER_PAGE = 5;
     private static final int POSITIONS_PER_PAGE = 5;
     private static final int BRANCHES_PER_PAGE = 5;
+    private static final Map<String, String> DEPT_DISPLAY_NAMES = Map.ofEntries(
+            Map.entry("ДЕПАРТАМЕНТ АНТИКОРРУПЦИОННОГО ФИНАНСОВОГО МОНИТОРИНГА", "ДАФМ"),
+            Map.entry("ДЕПАРТАМЕНТ ПРЕВЕНЦИИ И АНАЛИТИЧЕСКИХ РАЗРАБОТОК", "ДПАР"),
+            Map.entry("ДЕПАРТАМЕНТ СТРАТЕГИИ И ОПЕРАТИВНОГО УПРАВЛЕНИЯ", "ДСОУ"),
+            Map.entry("ДЕПАРТАМЕНТ ФИНАНСОВОГО МОНИТОРИНГА В СФЕРЕ ОТМЫВАНИЯ ДОХОДОВ", "ДФМОД"),
+            Map.entry("ДЕПАРТАМЕНТ ФИНАНСОВОГО МОНИТОРИНГА ПО ФИНАНСИРОВАНИЮ ТЕРРОРИЗМА", "ДФМФТ"),
+            Map.entry("ДЕПАРТАМЕНТ ПО РАБОТЕ С СУБЪЕКТАМИ ФИНМОНИТОРИНГА", "ДРСФМ"),
+            Map.entry("УПРАВЛЕНИЕ ПО РАБОТЕ СО СРЕДСТВАМИ МАССОВОЙ ИНФОРМАЦИИ", "УСМИ"),
+            Map.entry("Академия финансового мониторинга AML ACADEMY", "АМЛ")
+    );
+
+    public static final Map<String, String> DEPT_ALIAS_TO_FULL_NAME = Map.ofEntries(
+            Map.entry("ДАФМ", "ДЕПАРТАМЕНТ АНТИКОРРУПЦИОННОГО ФИНАНСОВОГО МОНИТОРИНГА"),
+            Map.entry("ДПАР", "ДЕПАРТАМЕНТ ПРЕВЕНЦИИ И АНАЛИТИЧЕСКИХ РАЗРАБОТОК"),
+            Map.entry("ДСОУ", "ДЕПАРТАМЕНТ СТРАТЕГИИ И ОПЕРАТИВНОГО УПРАВЛЕНИЯ"),
+            Map.entry("ДФМОД", "ДЕПАРТАМЕНТ ФИНАНСОВОГО МОНИТОРИНГА В СФЕРЕ ОТМЫВАНИЯ ДОХОДОВ"),
+            Map.entry("ДФМФТ", "ДЕПАРТАМЕНТ ФИНАНСОВОГО МОНИТОРИНГА ПО ФИНАНСИРОВАНИЮ ТЕРРОРИЗМА"),
+            Map.entry("ДРСФМ", "ДЕПАРТАМЕНТ ПО РАБОТЕ С СУБЪЕКТАМИ ФИНМОНИТОРИНГА"),
+            Map.entry("УСМИ", "УПРАВЛЕНИЕ ПО РАБОТЕ СО СРЕДСТВАМИ МАССОВОЙ ИНФОРМАЦИИ"),
+            Map.entry("АМЛ", "Академия финансового мониторинга AML ACADEMY")
+    );
 
     public InlineKeyboardMarkup createTaskFilterKeyboard(Map<DocumentStatus, List<Document>> groupedByStatus) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
@@ -97,7 +118,8 @@ public class KeyBoardUtil {
 
         for (int i = start; i < end; i++) {
             Department dept = departments.get(i);
-            keyboard.add(List.of(createButton(dept.getName(), "dept:" + dept.getId())));
+            String label = DEPT_DISPLAY_NAMES.getOrDefault(dept.getName(), dept.getName());
+            keyboard.add(List.of(createButton(label, "dept:" + dept.getId())));
         }
 
         addPagination(keyboard, page, departments.size(), "page:");
