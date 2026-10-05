@@ -48,6 +48,7 @@ public class UserService {
     private final Map<Long, Long> waitingForExtensionReason = new HashMap<>();
     private final Map<Long, Integer> lastMessageIds = new HashMap<>();
     private final Map<Long, Map<String, String>> tempData = new ConcurrentHashMap<>();
+    private final Map<Long, String> profileEditField = new ConcurrentHashMap<>();
 
 
     // === Ожидание действий администратора (из AdminCommandHandler) ===
@@ -495,6 +496,22 @@ public class UserService {
         return deleted
                 ? "User deleted (notification attempted)."
                 : "User deletion verification failed.";
+    }
+
+    public void setProfileEditField(Long telegramId, String field) {
+        profileEditField.put(telegramId, field);
+    }
+
+    public String getProfileEditField(Long telegramId) {
+        return profileEditField.get(telegramId);
+    }
+
+    public boolean isEditingProfile(Long telegramId) {
+        return profileEditField.containsKey(telegramId);
+    }
+
+    public void clearProfileEditField(Long telegramId) {
+        profileEditField.remove(telegramId);
     }
 
 }
