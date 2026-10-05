@@ -1,12 +1,8 @@
 package org.info.tg_bot;
 
-import org.info.tg_bot.util.EncryptionUtil;
-import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileReader;
@@ -14,7 +10,6 @@ import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-
 @SpringBootApplication
 @EnableScheduling
 public class TgBotApplication {
@@ -30,7 +25,7 @@ public class TgBotApplication {
             String outputFile = "tg_decrypted.csv";
 
             // Индексы колонок для расшифровки (0-based):
-            // 6=description, 7=old_data, 8=new_data, 9=metadata
+            /   / 6=description, 7=old_data, 8=new_data, 9=metadata
             Set<Integer> encryptedCols = Set.of(6, 7, 8, 9);
 
             int total = 0, decrypted = 0, errors = 0;

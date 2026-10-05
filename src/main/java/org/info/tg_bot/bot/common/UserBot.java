@@ -1,6 +1,7 @@
 package org.info.tg_bot.bot.common;
 
 import lombok.extern.slf4j.Slf4j;
+import org.info.tg_bot.bot.handlers.ProfileCommandHandler;
 import org.info.tg_bot.bot.handlers.UserCommandHandler;
 import org.info.tg_bot.service.UserService;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,11 +17,13 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+
 @Slf4j
 @Component
 public class UserBot extends TelegramLongPollingBot {
 
     private final UserCommandHandler userCommandHandler;
+    private final ProfileCommandHandler profileCommandHandler;
     private final UserService userService;
 
     @Value("${tg.user.token}")
@@ -31,6 +34,7 @@ public class UserBot extends TelegramLongPollingBot {
 
     public UserBot(
             UserCommandHandler userCommandHandler,
+            ProfileCommandHandler profileCommandHandler,
             UserService userService,
             DefaultBotOptions options,
             @Value("${tg.user.token}") String botToken,
@@ -38,6 +42,7 @@ public class UserBot extends TelegramLongPollingBot {
     ) {
         super(options, botToken);
         this.userCommandHandler = userCommandHandler;
+        this.profileCommandHandler = profileCommandHandler;
         this.userService = userService;
         this.botToken = botToken;
         this.botUsername = botUsername;
@@ -105,6 +110,17 @@ public class UserBot extends TelegramLongPollingBot {
             return;
         }
 
+        // --- Профиль ---
+        if (callbackData.startsWith(ProfileCommandHandler.CB_PREFIX)) {
+            response = profileCommandHandler.handleCallback(chatId, telegramId, callbackData);
+            sendAndTrack(chatId, telegramId, response);
+            execute(new AnswerCallbackQuery(callbackQueryId));
+            return;
+        }
+
+        // Любая другая кнопка прерывает ввод в профиле
+        userService.clearProfileEditField(telegramId);
+
         // --- Одобрение/отклонение ---
         if (callbackData.startsWith("approve_extend:")) {
             Long requestId = Long.parseLong(callbackData.split(":")[1]);
@@ -157,6 +173,9 @@ public class UserBot extends TelegramLongPollingBot {
 
         // --- Команды ---
         if (text.startsWith("/")) {
+            // Любая команда прерывает ввод в профиле
+            userService.clearProfileEditField(telegramId);
+
             response = switch (text) {
                 case "/start" -> {
                     userService.clearWaitingForTaskNumber(telegramId);
@@ -165,6 +184,7 @@ public class UserBot extends TelegramLongPollingBot {
                 }
                 case "/help" -> userCommandHandler.handleHelpCommand(chatId);
                 case "/tasks" -> userCommandHandler.handleMyTasksCommand(chatId, telegramId);
+                case "/profile" -> profileCommandHandler.handleProfileCommand(chatId, telegramId);
                 case "/pending" -> {
                     if (userService.isBoss(telegramId)) {
                         yield userCommandHandler.handlePendingRequests(chatId, telegramId);
@@ -182,6 +202,13 @@ public class UserBot extends TelegramLongPollingBot {
         // --- Регистрация ---
         if (!userService.existsByTelegramId(telegramId)) {
             response = userCommandHandler.handleRegistrationStep(chatId, telegramId, text);
+            sendAndTrack(chatId, telegramId, response);
+            return;
+        }
+
+        // --- Редактирование профиля ---
+        if (userService.isEditingProfile(telegramId)) {
+            response = profileCommandHandler.handleTextInput(chatId, telegramId, text);
             sendAndTrack(chatId, telegramId, response);
             return;
         }

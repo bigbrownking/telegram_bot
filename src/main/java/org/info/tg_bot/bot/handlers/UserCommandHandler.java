@@ -658,6 +658,7 @@ public class UserCommandHandler {
                 /start - Зарегистрироваться или начать работу
                 /tasks - Посмотреть ваши задачи
                 /pending - Запросы на продление (для руководителей)
+                /profile - Мой профиль и редактирование данных
                 /help - Показать это сообщение
                 """;
         return new SendMessage(chatId.toString(), helpText);
